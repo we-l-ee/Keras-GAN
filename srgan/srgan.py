@@ -31,15 +31,20 @@ import os
 import keras.backend as K
 
 class SRGAN():
-    def __init__(self):
-        # Input shape
-        self.channels = 3
-        self.lr_height = 64                 # Low resolution height
-        self.lr_width = 64                  # Low resolution width
-        self.lr_shape = (self.lr_height, self.lr_width, self.channels)
-        self.hr_height = self.lr_height*4   # High resolution height
-        self.hr_width = self.lr_width*4     # High resolution width
-        self.hr_shape = (self.hr_height, self.hr_width, self.channels)
+    def __init__(self, config=None):
+        if config is not None:
+            self.lr_width = config.getint("Model","rows")
+            self.lr_height = config.getint("Model","cols")
+            self.channels = config.getint("Model", "channels")
+        else:
+            self.lr_width = 64  # Low resolution width
+            self.lr_height = 64  # Low resolution height
+            self.channels = 3
+            self.lr_shape = (self.lr_height, self.lr_width, self.channels)
+            self.hr_height = self.lr_height * 4  # High resolution height
+            self.hr_width = self.lr_width * 4  # High resolution width
+            self.hr_shape = (self.hr_height, self.hr_width, self.channels)
+
 
         # Number of residual blocks in the generator
         self.n_residual_blocks = 16

@@ -15,13 +15,36 @@ import matplotlib.pyplot as plt
 
 import numpy as np
 
+from os import makedirs
+from os.path import join
+
 class SGAN():
-    def __init__(self):
-        self.img_rows = 28
-        self.img_cols = 28
-        self.channels = 1
-        self.num_classes = 10
-        self.latent_dim = 100
+    def __init__(self, config=None):
+        if config is not None:
+            self.img_rows = config.getint("Model","rows")
+            self.img_cols = config.getint("Model","cols")
+            self.channels = config.getint("Model", "channels")
+            self.num_classes = config.getint("Model", "num_classes")
+            self.latent_dim = config.getint("Model", "latent_dim")
+            self.output_folder = config.get("Model", "output_folder")
+
+        else:
+            self.img_rows = 28
+            self.img_cols = 28
+            self.channels = 1
+            self.num_classes = 10
+            self.latent_dim = 100
+            self.output_folder = "images"
+
+
+
+        makedirs(self.output_folder, exist_ok=True)
+        self.log_folder = join(self.output_folder, "logs")
+        makedirs(self.log_folder, exist_ok=True)
+        self.log_file = join(self.log_folder, "logs.csv")
+
+        self.img_dim = self.img_rows * self.img_cols * self.channels
+        self.img_shape = (self.rows, self.cols, self.channels)
 
         optimizer = Adam(0.0002, 0.5)
 
@@ -108,15 +131,15 @@ class SGAN():
 
         return Model(img, [valid, label])
 
-    def train(self, epochs, batch_size=128, sample_interval=50):
+    def train(self, X, epochs, batch_size=128, sample_interval=50, **kwargs):
+        half_batch = batch_size/2
 
-        # Load the dataset
-        (X_train, y_train), (_, _) = mnist.load_data()
+        Y = kwargs["Y"]
 
         # Rescale -1 to 1
-        X_train = (X_train.astype(np.float32) - 127.5) / 127.5
-        X_train = np.expand_dims(X_train, axis=3)
-        y_train = y_train.reshape(-1, 1)
+        X = (X.astype(np.float32) - 127.5) / 127.5
+        X = np.expand_dims(X, axis=3)
+        Y = Y.reshape(-1, 1)
 
         # Class weights:
         # To balance the difference in occurences of digit class labels.
@@ -137,15 +160,15 @@ class SGAN():
             # ---------------------
 
             # Select a random batch of images
-            idx = np.random.randint(0, X_train.shape[0], batch_size)
-            imgs = X_train[idx]
+            idx = np.random.randint(0, X.shape[0], batch_size)
+            imgs = X[idx]
 
             # Sample noise and generate a batch of new images
             noise = np.random.normal(0, 1, (batch_size, self.latent_dim))
             gen_imgs = self.generator.predict(noise)
 
             # One-hot encoding of labels
-            labels = to_categorical(y_train[idx], num_classes=self.num_classes+1)
+            labels = to_categorical(Y[idx], num_classes=self.num_classes+1)
             fake_labels = to_categorical(np.full((batch_size, 1), self.num_classes), num_classes=self.num_classes+1)
 
             # Train the discriminator
@@ -182,7 +205,7 @@ class SGAN():
                 axs[i,j].imshow(gen_imgs[cnt, :,:,0], cmap='gray')
                 axs[i,j].axis('off')
                 cnt += 1
-        fig.savefig("images/mnist_%d.png" % epoch)
+        fig.savefig(join(self.output_folder, "SGAN_%d.png" % epoch))
         plt.close()
 
     def save_model(self):
@@ -196,9 +219,12 @@ class SGAN():
             open(options['file_arch'], 'w').write(json_string)
             model.save_weights(options['file_weight'])
 
-        save(self.generator, "mnist_sgan_generator")
-        save(self.discriminator, "mnist_sgan_discriminator")
-        save(self.combined, "mnist_sgan_adversarial")
+        save(self.generator, join(self.output_folder,"models", "sgan_generator"))
+        save(self.discriminator, join(self.output_folder,"models", "sgan_discriminator"))
+        save(self.combined, join(self.output_folder,"models", "sgan_adversarial"))
+
+    def load_model(self):
+        pass
 
 
 if __name__ == '__main__':

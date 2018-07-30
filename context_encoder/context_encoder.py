@@ -17,12 +17,18 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 class ContextEncoder():
-    def __init__(self):
-        self.img_rows = 32
-        self.img_cols = 32
+    def __init__(self, config=None):
+        if config is not None:
+            self.img_rows = config.getint("Model","rows")
+            self.img_cols = config.getint("Model","cols")
+            self.channels = config.getint("Model", "channels")
+        else:
+            self.img_rows = 28
+            self.img_cols = 28
+            self.channels = 1
+
         self.mask_height = 8
         self.mask_width = 8
-        self.channels = 3
         self.num_classes = 2
         self.img_shape = (self.img_rows, self.img_cols, self.channels)
         self.missing_shape = (self.mask_height, self.mask_width, self.channels)

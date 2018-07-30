@@ -17,11 +17,16 @@ import numpy as np
 import os
 
 class DiscoGAN():
-    def __init__(self):
-        # Input shape
-        self.img_rows = 128
-        self.img_cols = 128
-        self.channels = 3
+    def __init__(self, config=None):
+        if config is not None:
+            self.img_rows = config.getint("Model","rows")
+            self.img_cols = config.getint("Model","cols")
+            self.channels = config.getint("Model", "channels")
+        else:
+            self.img_rows = 128
+            self.img_cols = 128
+            self.channels = 3
+
         self.img_shape = (self.img_rows, self.img_cols, self.channels)
 
         # Configure data loader

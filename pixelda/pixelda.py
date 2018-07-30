@@ -18,11 +18,16 @@ import numpy as np
 import os
 
 class PixelDA():
-    def __init__(self):
-        # Input shape
-        self.img_rows = 32
-        self.img_cols = 32
-        self.channels = 3
+    def __init__(self, config=None):
+        if config is not None:
+            self.img_rows = config.getint("Model","rows")
+            self.img_cols = config.getint("Model","cols")
+            self.channels = config.getint("Model", "channels")
+        else:
+            self.img_rows = 32
+            self.img_cols = 32
+            self.channels = 3
+
         self.img_shape = (self.img_rows, self.img_cols, self.channels)
         self.num_classes = 10
 

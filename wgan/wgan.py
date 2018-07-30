@@ -17,10 +17,16 @@ import sys
 import numpy as np
 
 class WGAN():
-    def __init__(self):
-        self.img_rows = 28
-        self.img_cols = 28
-        self.channels = 1
+    def __init__(self, config=None):
+        if config is not None:
+            self.img_rows = config.getint("Model","rows")
+            self.img_cols = config.getint("Model","cols")
+            self.channels = config.getint("Model", "channels")
+        else:
+            self.img_rows = 28
+            self.img_cols = 28
+            self.channels = 1
+
         self.img_shape = (self.img_rows, self.img_cols, self.channels)
         self.latent_dim = 100
 
@@ -111,14 +117,11 @@ class WGAN():
 
         return Model(img, validity)
 
-    def train(self, epochs, batch_size=128, sample_interval=50):
-
-        # Load the dataset
-        (X_train, _), (_, _) = mnist.load_data()
+    def train(self, X, epochs, batch_size=128, sample_interval=50):
 
         # Rescale -1 to 1
-        X_train = (X_train.astype(np.float32) - 127.5) / 127.5
-        X_train = np.expand_dims(X_train, axis=3)
+        X = (X.astype(np.float32) - 127.5) / 127.5
+        X = np.expand_dims(X, axis=3)
 
         # Adversarial ground truths
         valid = -np.ones((batch_size, 1))
@@ -133,8 +136,8 @@ class WGAN():
                 # ---------------------
 
                 # Select a random batch of images
-                idx = np.random.randint(0, X_train.shape[0], batch_size)
-                imgs = X_train[idx]
+                idx = np.random.randint(0, X.shape[0], batch_size)
+                imgs = X[idx]
                 
                 # Sample noise as generator input
                 noise = np.random.normal(0, 1, (batch_size, self.latent_dim))

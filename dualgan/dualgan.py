@@ -16,34 +16,63 @@ import matplotlib.pyplot as plt
 import sys
 
 import numpy as np
+from os.path import join
+from os import makedirs
+
+from keras.models import save_model
+from keras.models import load_model
 
 class DUALGAN():
-    def __init__(self):
-        self.img_rows = 28
-        self.img_cols = 28
-        self.channels = 1
-        self.img_dim = self.img_rows*self.img_cols
+    def __init__(self, config=None):
+        if config is not None:
+            self.img_rows = config.getint("Model", "rows")
+            self.img_cols = config.getint("Model", "cols")
+            self.channels = config.getint("Model", "channels")
+            self.output_folder = config.get("Model", "output_folder")
+            self.save_folder = join(self.output_folder, "models")
+            self.load = config.getboolean("Model", "load")
+            self.load_folder = config.get("Model", "load_folder")
 
-        optimizer = Adam(0.0002, 0.5)
+        else:
+            self.img_rows = 28
+            self.img_cols = 28
+            self.channels = 1
+            self.output_folder = "images"
+            self.save_path = "model"
+            self.load=False
+
+        makedirs(self.output_folder, exist_ok=True)
+        self.log_folder = join(self.output_folder, "logs")
+        makedirs(self.log_folder, exist_ok=True)
+        self.log_file = join(self.log_folder, "logs.csv")
+
+        self.img_dim = self.img_rows * self.img_cols * self.channels
+        self.img_shape = (self.rows, self.cols, self.channels)
+
 
         # Build and compile the discriminators
-        self.D_A = self.build_discriminator()
-        self.D_A.compile(loss=self.wasserstein_loss,
-            optimizer=optimizer,
-            metrics=['accuracy'])
-        self.D_B = self.build_discriminator()
-        self.D_B.compile(loss=self.wasserstein_loss,
-            optimizer=optimizer,
-            metrics=['accuracy'])
+        if not self.load:
+            optimizer = Adam(0.0002, 0.5)
+            self.D_A = self.build_discriminator()
+            self.D_A.compile(loss=self.wasserstein_loss,
+                             optimizer=optimizer,
+                             metrics=['accuracy'])
 
-        #-------------------------
-        # Construct Computational
-        #   Graph of Generators
-        #-------------------------
+            self.D_B = self.build_discriminator()
+            self.D_B.compile(loss=self.wasserstein_loss,
+                             optimizer=optimizer,
+                             metrics=['accuracy'])
 
-        # Build the generators
-        self.G_AB = self.build_generator()
-        self.G_BA = self.build_generator()
+            # -------------------------
+            # Construct Computational
+            #   Graph of Generators
+            # -------------------------
+
+            # Build the generators
+            self.G_AB = self.build_generator()
+            self.G_BA = self.build_generator()
+
+        else: self.load_model()
 
         # For the combined model we will only train the generators
         self.D_A.trainable = False
@@ -67,9 +96,13 @@ class DUALGAN():
 
         # The combined model  (stacked generators and discriminators)
         self.combined = Model(inputs=[imgs_A, imgs_B], outputs=[valid_A, valid_B, recov_A, recov_B])
+
+
         self.combined.compile(loss=[self.wasserstein_loss, self.wasserstein_loss, 'mae', 'mae'],
-                            optimizer=optimizer,
-                            loss_weights=[1, 1, 100, 100])
+                              optimizer=optimizer,
+                              loss_weights=[1, 1, 100, 100])
+
+        self.combined.summary()
 
     def build_generator(self):
 
@@ -118,76 +151,82 @@ class DUALGAN():
     def wasserstein_loss(self, y_true, y_pred):
         return K.mean(y_true * y_pred)
 
-    def train(self, epochs, batch_size=128, sample_interval=50):
+    def train(self, X, epochs, batch_size=128, sample_interval=50, save=True):
 
-        # Load the dataset
-        (X_train, _), (_, _) = mnist.load_data()
+        import csv
+        with open(self.log_file, 'w') as fout:
+            logger = csv.writer(fout, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
+            logger.writerow(["Epoch", "D1_loss", "D2_loss", "G_loss"])
+            # Rescale -1 to 1
+            X = (X.astype(np.float32) - 127.5) / 127.5
 
-        # Rescale -1 to 1
-        X_train = (X_train.astype(np.float32) - 127.5) / 127.5
+            # Domain A and B (rotated)
+            X_A = X[:int(X.shape[0] / 2)]
+            X_B = scipy.ndimage.interpolation.rotate(X[int(X.shape[0] / 2):], 90
+                                                     , axes=(1, 2)
+                                                     )
 
-        # Domain A and B (rotated)
-        X_A = X_train[:int(X_train.shape[0]/2)]
-        X_B = scipy.ndimage.interpolation.rotate(X_train[int(X_train.shape[0]/2):], 90, axes=(1, 2))
+            X_A = X_A.reshape(X_A.shape[0], self.img_dim)
+            X_B = X_B.reshape(X_B.shape[0], self.img_dim)
 
-        X_A = X_A.reshape(X_A.shape[0], self.img_dim)
-        X_B = X_B.reshape(X_B.shape[0], self.img_dim)
+            clip_value = 0.01
+            n_critic = 4
 
-        clip_value = 0.01
-        n_critic = 4
+            # Adversarial ground truths
+            valid = -np.ones((batch_size, 1))
+            fake = np.ones((batch_size, 1))
 
-        # Adversarial ground truths
-        valid = -np.ones((batch_size, 1))
-        fake = np.ones((batch_size, 1))
+            for epoch in range(epochs):
 
-        for epoch in range(epochs):
+                # Train the discriminator for n_critic iterations
+                for _ in range(n_critic):
 
-            # Train the discriminator for n_critic iterations
-            for _ in range(n_critic):
+                    # ----------------------
+                    #  Train Discriminators
+                    # ----------------------
 
-                # ----------------------
-                #  Train Discriminators
-                # ----------------------
+                    # Sample generator inputs
+                    imgs_A = self.sample_generator_input(X_A, batch_size)
+                    imgs_B = self.sample_generator_input(X_B, batch_size)
 
-                # Sample generator inputs
-                imgs_A = self.sample_generator_input(X_A, batch_size)
-                imgs_B = self.sample_generator_input(X_B, batch_size)
+                    # Translate images to their opposite domain
+                    fake_B = self.G_AB.predict(imgs_A)
+                    fake_A = self.G_BA.predict(imgs_B)
 
-                # Translate images to their opposite domain
-                fake_B = self.G_AB.predict(imgs_A)
-                fake_A = self.G_BA.predict(imgs_B)
+                    # Train the discriminators
+                    D_A_loss_real = self.D_A.train_on_batch(imgs_A, valid)
+                    D_A_loss_fake = self.D_A.train_on_batch(fake_A, fake)
 
-                # Train the discriminators
-                D_A_loss_real = self.D_A.train_on_batch(imgs_A, valid)
-                D_A_loss_fake = self.D_A.train_on_batch(fake_A, fake)
+                    D_B_loss_real = self.D_B.train_on_batch(imgs_B, valid)
+                    D_B_loss_fake = self.D_B.train_on_batch(fake_B, fake)
 
-                D_B_loss_real = self.D_B.train_on_batch(imgs_B, valid)
-                D_B_loss_fake = self.D_B.train_on_batch(fake_B, fake)
+                    D_A_loss = 0.5 * np.add(D_A_loss_real, D_A_loss_fake)
+                    D_B_loss = 0.5 * np.add(D_B_loss_real, D_B_loss_fake)
 
-                D_A_loss = 0.5 * np.add(D_A_loss_real, D_A_loss_fake)
-                D_B_loss = 0.5 * np.add(D_B_loss_real, D_B_loss_fake)
+                    # Clip discriminator weights
+                    for d in [self.D_A, self.D_B]:
+                        for l in d.layers:
+                            weights = l.get_weights()
+                            weights = [np.clip(w, -clip_value, clip_value) for w in weights]
+                            l.set_weights(weights)
 
-                # Clip discriminator weights
-                for d in [self.D_A, self.D_B]:
-                    for l in d.layers:
-                        weights = l.get_weights()
-                        weights = [np.clip(w, -clip_value, clip_value) for w in weights]
-                        l.set_weights(weights)
+                # ------------------
+                #  Train Generators
+                # ------------------
 
-            # ------------------
-            #  Train Generators
-            # ------------------
+                # Train the generators
+                g_loss = self.combined.train_on_batch([imgs_A, imgs_B], [valid, valid, imgs_A, imgs_B])
 
-            # Train the generators
-            g_loss = self.combined.train_on_batch([imgs_A, imgs_B], [valid, valid, imgs_A, imgs_B])
+                # Plot the progress
+                print("%d [D1 loss: %f] [D2 loss: %f] [G loss: %f]" \
+                      % (epoch, D_A_loss[0], D_B_loss[0], g_loss[0]))
+                logger.writerow([epoch, D_A_loss[0], D_B_loss[0], g_loss[0]])
 
-            # Plot the progress
-            print ("%d [D1 loss: %f] [D2 loss: %f] [G loss: %f]" \
-                % (epoch, D_A_loss[0], D_B_loss[0], g_loss[0]))
+                # If at save interval => save generated image samples
+                if epoch % sample_interval == 0:
+                    self.save_imgs(epoch, X_A, X_B)
 
-            # If at save interval => save generated image samples
-            if epoch % sample_interval == 0:
-                self.save_imgs(epoch, X_A, X_B)
+            save_model(self.combined, self.save_path)
 
     def save_imgs(self, epoch, X_A, X_B):
         r, c = 4, 4
@@ -201,7 +240,7 @@ class DUALGAN():
         fake_A = self.G_BA.predict(imgs_B)
 
         gen_imgs = np.concatenate([imgs_A, fake_B, imgs_B, fake_A])
-        gen_imgs = gen_imgs.reshape((r, c, self.img_rows, self.img_cols, 1))
+        gen_imgs = gen_imgs.reshape((r, c, self.img_rows, self.img_cols, self.channels))
 
         # Rescale images 0 - 1
         gen_imgs = 0.5 * gen_imgs + 0.5
@@ -210,13 +249,48 @@ class DUALGAN():
         cnt = 0
         for i in range(r):
             for j in range(c):
-                axs[i,j].imshow(gen_imgs[i, j, :,:,0], cmap='gray')
-                axs[i,j].axis('off')
+                axs[i, j].imshow(gen_imgs[i, j, :, :, 0], cmap='gray')
+                axs[i, j].axis('off')
                 cnt += 1
-        fig.savefig("images/mnist_%d.png" % epoch)
+        fig.savefig(join(self.output_folder, "DUALGAN_%d.png" % epoch))
         plt.close()
 
 
-if __name__ == '__main__':
-    gan = DUALGAN()
-    gan.train(epochs=30000, batch_size=32, sample_interval=200)
+
+    def load_model(self):
+        optimizer = Adam(0.0002, 0.5)
+        self.D_A = load_model(join(self.load_folder,"D_A"))
+        self.D_A.compile(loss=self.wasserstein_loss,
+                         optimizer=optimizer,
+                         metrics=['accuracy'])
+        self.D_B = load_model(join(self.load_folder,"D_B"))
+        self.D_B.compile(loss=self.wasserstein_loss,
+                         optimizer=optimizer,
+                         metrics=['accuracy'])
+
+        # -------------------------
+        # Construct Computational
+        #   Graph of Generators
+        # -------------------------
+
+        # Build the generators
+        self.G_AB = load_model(join(self.load_folder,"G_AB"))
+        self.G_BA = load_model(join(self.load_folder,"G_BA"))
+
+    def save_model(self):
+        save_model(self.D_A, join(self.save_folder,"D_A"))
+
+        load_model(self.D_B, join(self.save_folder,"D_B"))
+
+        # -------------------------
+        # Construct Computational
+        #   Graph of Generators
+        # -------------------------
+
+        # Build the generators
+        load_model(self.G_AB, join(self.save_folder,"G_AB"))
+        load_model(self.G_BA, join(self.save_folder,"G_BA"))
+
+# if __name__ == '__main__':
+#     gan = DUALGAN()
+#     gan.train(epochs=30000, batch_size=32, sample_interval=200)
