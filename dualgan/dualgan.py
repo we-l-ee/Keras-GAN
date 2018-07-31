@@ -7,7 +7,7 @@ from keras.layers import BatchNormalization, Activation, ZeroPadding2D
 from keras.layers.advanced_activations import LeakyReLU
 from keras.layers.convolutional import UpSampling2D, Conv2D
 from keras.models import Sequential, Model
-from keras.optimizers import RMSprop, Adam
+from keras.optimizers import RMSprop, Adam, SGD
 from keras.utils import to_categorical
 import keras.backend as K
 
@@ -47,12 +47,13 @@ class DUALGAN():
         self.log_file = join(self.log_folder, "logs.csv")
 
         self.img_dim = self.img_rows * self.img_cols * self.channels
-        self.img_shape = (self.rows, self.cols, self.channels)
+        self.img_shape = (self.img_rows, self.img_cols, self.channels)
 
 
         # Build and compile the discriminators
         if not self.load:
-            optimizer = Adam(0.0002, 0.5)
+            #optimizer = Adam(0.0002, 0.5)
+            optimizer = SGD()
             self.D_A = self.build_discriminator()
             self.D_A.compile(loss=self.wasserstein_loss,
                              optimizer=optimizer,
