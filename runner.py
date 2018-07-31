@@ -8,10 +8,10 @@ import numpy as np
 from os.path import join
 from dualgan.dualgan import DUALGAN
 
-def getImageFiles(input_folder, exts = ("jpg", "gif", "png", "tga", "tif"), recursive=False):
+def getImageFiles(input_folder, exts = (".jpg", ".gif", ".png", ".tga", ".tif"), recursive=False):
     files = []
     for ext in exts:
-        files.extend(glob.glob(join(input_folder,'*.%s' % ext), recursive=recursive))
+        files.extend(glob.glob(join(input_folder,'*%s' % ext), recursive=recursive))
     return files
 
 def load_imagefiles(input_root, shape=(100,100)):
