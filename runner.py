@@ -9,6 +9,7 @@ from os.path import join, splitext, basename
 from dualgan.dualgan import DUALGAN
 from wgan.wgan import WGAN
 from bigan.bigan import BIGAN
+from pix2pix.pix2pix import Pix2Pix
 
 def getImageFiles(input_folder, exts = (".jpg", ".gif", ".png", ".tga", ".tif"), recursive=False):
     files = []
@@ -50,7 +51,7 @@ def get_files(config):
 def main():
     config = configparser.ConfigParser()
     config.read("runner.cfg")
-    models = {"DUALGAN": DUALGAN, "WGAN":WGAN, "BIGAN":BIGAN}
+    models = {"DUALGAN": DUALGAN, "WGAN":WGAN, "BIGAN":BIGAN, "Pix2Pix":Pix2Pix}
 
     train_on = {"OK": get_files_OK, "FAULT": get_files_FAULT, "all": get_files}
 

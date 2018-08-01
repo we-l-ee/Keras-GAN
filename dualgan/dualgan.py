@@ -29,10 +29,11 @@ class DUALGAN():
             self.img_cols = config.getint("Model", "cols")
             self.channels = config.getint("Model", "channels")
             self.output_folder = config.get("Model", "output_folder")
-            self.save_folder = join(self.output_folder, "models")
             self.load = config.getboolean("Model", "load")
-            self.load_folder = config.get("Model", "load_folder")
-
+            self.load_folder = join(config.get("Model", "load_folder"),"models")
+            self.last_epoch = config.getint('Model', "last_epoch")
+            self.backup = config.getboolean("Model", 'backup')
+            self.backup_interval = config.getint("Model", 'backup_interval')
         else:
             self.img_rows = 28
             self.img_cols = 28
@@ -41,43 +42,49 @@ class DUALGAN():
             self.save_path = "model"
             self.load=False
 
-        makedirs(self.output_folder, exist_ok=True)
         self.log_folder = join(self.output_folder, "logs")
-        makedirs(self.log_folder, exist_ok=True)
+        self.save_folder = join(self.output_folder, "models")
         self.log_file = join(self.log_folder, "logs.csv")
+
+        makedirs(self.log_folder, exist_ok=True)
+        makedirs(self.save_folder, exist_ok=True)
 
         self.img_dim = self.img_rows * self.img_cols * self.channels
         self.img_shape = (self.img_rows, self.img_cols, self.channels)
 
 
         # Build and compile the discriminators
-        if not self.load:
-            #optimizer = Adam(0.0002, 0.5)
-            optimizer = RMSprop()
-            self.D_A = self.build_discriminator()
-            self.D_A.compile(loss=self.wasserstein_loss,
-                             optimizer=optimizer,
-                             metrics=['accuracy'])
+        optimizer = Adam(0.0002, 0.5)
+        # optimizer = RMSprop()
+        self.D_A = self.build_discriminator()
 
-            self.D_B = self.build_discriminator()
-            self.D_B.compile(loss=self.wasserstein_loss,
-                             optimizer=optimizer,
-                             metrics=['accuracy'])
 
-            # -------------------------
-            # Construct Computational
-            #   Graph of Generators
-            # -------------------------
+        self.D_B = self.build_discriminator()
 
-            # Build the generators
-            self.G_AB = self.build_generator()
-            self.G_BA = self.build_generator()
 
-        else: self.load_model()
+        # -------------------------
+        # Construct Computational
+        #   Graph of Generators
+        # -------------------------
+
+        # Build the generators
+        self.G_AB = self.build_generator()
+        self.G_BA = self.build_generator()
+
+        if self.load: self.load_model()
+
+        self.D_A.compile(loss=self.wasserstein_loss,
+                         optimizer=optimizer,
+                         metrics=['accuracy'])
+
+        self.D_B.compile(loss=self.wasserstein_loss,
+                         optimizer=optimizer,
+                         metrics=['accuracy'])
 
         # For the combined model we will only train the generators
         self.D_A.trainable = False
         self.D_B.trainable = False
+
 
         # The generator takes images from their respective domains as inputs
         imgs_A = Input(shape=(self.img_dim,))
@@ -94,6 +101,8 @@ class DUALGAN():
         # Generators translate the images back to their original domain
         recov_A = self.G_BA(fake_B)
         recov_B = self.G_AB(fake_A)
+
+
 
         # The combined model  (stacked generators and discriminators)
         self.combined = Model(inputs=[imgs_A, imgs_B], outputs=[valid_A, valid_B, recov_A, recov_B])
@@ -152,6 +161,7 @@ class DUALGAN():
     def wasserstein_loss(self, y_true, y_pred):
         return K.mean(y_true * y_pred)
 
+    # 12 Generator? for each 30 degree?
     def train(self, X, epochs, batch_size=128, sample_interval=50, save=True):
 
         import csv
@@ -177,7 +187,7 @@ class DUALGAN():
             valid = -np.ones((batch_size, 1))
             fake = np.ones((batch_size, 1))
 
-            for epoch in range(epochs):
+            for epoch in range(self.last_epoch, epochs+self.last_epoch):
 
                 # Train the discriminator for n_critic iterations
                 for _ in range(n_critic):
@@ -228,7 +238,24 @@ class DUALGAN():
                 if epoch % sample_interval == 0:
                     self.save_imgs(epoch, X_A, X_B)
 
+                if self.backup and epoch % self.backup_interval == 0:
+                    self.save_model(ext='_e'+str(epoch))
+
             self.save_model()
+
+    def feed(self, img):
+        img = (img.astype(np.float32) - 127.5) / 127.5
+        img = img + (np.random.rand(img.shape)-0.5)
+        img[img<0] = 0; img[img>1]=1
+        self.__feed = self.G_AB.predict(img.reshape((1,)+self.img_shape))
+
+    def generate(self, n):
+
+        gen_imgs=[]
+        for _ in range(n):
+            self.__feed = self.G_AB(self.__feed.reshape((1,)+self.img_shape))
+            gen_imgs.append(self.__feed.copy())
+        return gen_imgs
 
     def save_imgs(self, epoch, X_A, X_B):
         r, c = 4, 4
@@ -260,38 +287,21 @@ class DUALGAN():
 
 
     def load_model(self):
-        optimizer = Adam(0.0002, 0.5)
-        self.D_A = load_model(join(self.load_folder,"D_A"))
-        self.D_A.compile(loss=self.wasserstein_loss,
-                         optimizer=optimizer,
-                         metrics=['accuracy'])
-        self.D_B = load_model(join(self.load_folder,"D_B"))
-        self.D_B.compile(loss=self.wasserstein_loss,
-                         optimizer=optimizer,
-                         metrics=['accuracy'])
 
-        # -------------------------
-        # Construct Computational
-        #   Graph of Generators
-        # -------------------------
+        self.D_A.load_weights(join(self.load_folder,"D_A"))
 
-        # Build the generators
-        self.G_AB = load_model(join(self.load_folder,"G_AB"))
-        self.G_BA = load_model(join(self.load_folder,"G_BA"))
+        self.D_B.load_weights(join(self.load_folder,"D_B"))
 
-    def save_model(self):
-        save_model(self.D_A, join(self.save_folder,"D_A"))
+        self.G_AB.load_weights(join(self.load_folder,"G_AB"))
+        self.G_BA.load_weights(join(self.load_folder,"G_BA"))
 
-        save_model(self.D_B, join(self.save_folder,"D_B"))
+    def save_model(self, ext=''):
+        self.D_A.save_weights(join(self.save_folder,"D_A"+ext))
 
-        # -------------------------
-        # Construct Computational
-        #   Graph of Generators
-        # -------------------------
+        self.D_B.save_weights(join(self.save_folder,"D_B"+ext))
 
-        # Build the generators
-        save_model(self.G_AB, join(self.save_folder,"G_AB"))
-        save_model(self.G_BA, join(self.save_folder,"G_BA"))
+        self.G_AB.save_weights(join(self.save_folder,"G_AB"+ext))
+        self.G_BA.save_weights(join(self.save_folder,"G_BA"+ext))
 
 # if __name__ == '__main__':
 #     gan = DUALGAN()

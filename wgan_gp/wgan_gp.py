@@ -23,6 +23,12 @@ import sys
 
 import numpy as np
 
+from os.path import join
+from os import makedirs
+
+from keras.models import save_model
+from keras.models import load_model
+
 class RandomWeightedAverage(_Merge):
     """Provides a (random) weighted average between real and generated image samples"""
     def _merge_function(self, inputs):
@@ -32,16 +38,30 @@ class RandomWeightedAverage(_Merge):
 class WGANGP():
     def __init__(self, config=None):
         if config is not None:
-            self.img_rows = config.getint("Model","rows")
-            self.img_cols = config.getint("Model","cols")
+            self.img_rows = config.getint("Model", "rows")
+            self.img_cols = config.getint("Model", "cols")
             self.channels = config.getint("Model", "channels")
+            self.output_folder = config.get("Model", "output_folder")
+            self.save_folder = join(self.output_folder, "models")
+            self.load = config.getboolean("Model", "load")
+            self.load_folder = config.get("Model", "load_folder")
+            self.latent_dim = config.getint("Model", "latent_dim")
         else:
             self.img_rows = 28
             self.img_cols = 28
             self.channels = 1
+            self.output_folder = "images"
+            self.save_path = "model"
+            self.load = False
+            self.latent_dim = 100
 
+        makedirs(self.output_folder, exist_ok=True)
+        self.log_folder = join(self.output_folder, "logs")
+        makedirs(self.log_folder, exist_ok=True)
+        self.log_file = join(self.log_folder, "logs.csv")
+
+        self.img_dim = self.img_rows * self.img_cols * self.channels
         self.img_shape = (self.img_rows, self.img_cols, self.channels)
-        self.latent_dim = 100
 
         # Following parameter and optimizer set as recommended in paper
         self.n_critic = 5

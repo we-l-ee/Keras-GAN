@@ -4,7 +4,7 @@ from keras.datasets import mnist
 from keras.layers import Input, Dense, Reshape, Flatten, Dropout
 from keras.layers import BatchNormalization, Activation, ZeroPadding2D
 from keras.layers.advanced_activations import LeakyReLU
-from keras.layers.convolutional import UpSampling2D, Conv2D
+from keras.layers.convolutional import UpSampling2D, Conv2D, Conv3D
 from keras.models import Sequential, Model
 from keras.optimizers import RMSprop
 
@@ -30,10 +30,12 @@ class WGAN():
             self.img_cols = config.getint("Model", "cols")
             self.channels = config.getint("Model", "channels")
             self.output_folder = config.get("Model", "output_folder")
-            self.save_folder = join(self.output_folder, "models")
             self.load = config.getboolean("Model", "load")
-            self.load_folder = config.get("Model", "load_folder")
             self.latent_dim = config.getint("Model", "latent_dim")
+            self.load_folder = join(config.get("Model", "load_folder"),"models")
+            self.last_epoch = config.getint('Model', "last_epoch")
+            self.backup = config.getboolean("Model", 'backup')
+            self.backup_interval = config.getint("Model", 'backup_interval')
         else:
             self.img_rows = 28
             self.img_cols = 28
@@ -43,10 +45,12 @@ class WGAN():
             self.load = False
             self.latent_dim = 100
 
-        makedirs(self.output_folder, exist_ok=True)
+        self.save_folder = join(self.output_folder, "models")
         self.log_folder = join(self.output_folder, "logs")
-        makedirs(self.log_folder, exist_ok=True)
         self.log_file = join(self.log_folder, "logs.csv")
+
+        makedirs(self.log_folder, exist_ok=True)
+        makedirs(self.save_folder, exist_ok=True)
 
         self.img_dim = self.img_rows * self.img_cols * self.channels
         self.img_shape = (self.img_rows, self.img_cols, self.channels)
@@ -55,17 +59,17 @@ class WGAN():
         self.n_critic = 5
         self.clip_value = 0.01
 
-        if not self.load:
-            optimizer = RMSprop(lr=0.00005)
-            # Build and compile the critic
-            self.critic = self.build_critic()
-            self.critic.compile(loss=self.wasserstein_loss,
-                                optimizer=optimizer,
-                                metrics=['accuracy'])
+        optimizer = RMSprop(lr=0.00005)
+        # Build and compile the critic
+        self.critic = self.build_critic()
+        self.critic.compile(loss=self.wasserstein_loss,
+                            optimizer=optimizer,
+                            metrics=['accuracy'])
 
-            # Build the generator
-            self.generator = self.build_generator()
-        else: self.load_model()
+        # Build the generator
+        self.generator = self.build_generator()
+
+        if self.load: self.load_model()
 
         # The generator takes noise as input and generated imgs
         z = Input(shape=(self.latent_dim,))
@@ -102,9 +106,10 @@ class WGAN():
         model.add(Activation("relu"))
         model.add(Conv2D(self.channels, kernel_size=4, padding="same"))
 
-        # model.add(Activation("tanh")) # original
+        model.add(Activation("tanh")) # original
         # should it not be this way?
-        model.add(Dense(self.img_dim, activation='tanh'))  # modified
+        model.add(Dense(self.img_dim))  # added
+        model.add(Activation("tanh")) # added
 
         model.summary()
 
@@ -136,10 +141,10 @@ class WGAN():
         model.add(Flatten())
         model.add(Dense(1))
 
-        model.summary()
 
         img = Input(shape=self.img_shape)
         validity = model(img)
+        model.summary()
 
         return Model(img, validity)
 
@@ -168,12 +173,13 @@ class WGAN():
                     # Select a random batch of images
                     idx = np.random.randint(0, X.shape[0], batch_size)
                     imgs = X[idx]
+                    # imgs = imgs.reshape((batch_size,)+ self.img_shape)
 
                     # Sample noise as generator input
                     noise = np.random.normal(0, 1, (batch_size, self.latent_dim))
 
                     # Generate a batch of new images
-                    gen_imgs = self.generator.predict(noise)
+                    gen_imgs = self.generator.predict(noise).reshape((batch_size,) + self.img_shape)
 
                     # Train the critic
                     d_loss_real = self.critic.train_on_batch(imgs, valid)
@@ -200,6 +206,10 @@ class WGAN():
                 # If at save interval => save generated image samples
                 if epoch % sample_interval == 0:
                     self.sample_images(epoch)
+
+                if self.backup and epoch % self.backup_interval == 0:
+                    self.save_model(ext='_e' + str(epoch))
+
             save_model()
 
     def sample_images(self, epoch):
@@ -209,6 +219,8 @@ class WGAN():
 
         # Rescale images 0 - 1
         gen_imgs = 0.5 * gen_imgs + 1
+
+        gen_imgs = gen_imgs.reshape((r*c,)+self.img_shape)
 
         fig, axs = plt.subplots(r, c)
         cnt = 0
@@ -220,21 +232,18 @@ class WGAN():
         fig.savefig(join(self.output_folder, "DUALGAN_%d.png" % epoch))
         plt.close()
 
+
     def load_model(self):
-        optimizer = RMSprop(lr=0.00005)
-        # Build and compile the critic
-        self.critic = load_model(join(self.load_folder,"critic"))
-        self.critic.compile(loss=self.wasserstein_loss,
-                            optimizer=optimizer,
-                            metrics=['accuracy'])
 
-        # Build the generator
-        self.generator = load_model(join(self.load_folder,"generator"))
+        self.critic.load_weights(join(self.load_folder,"critic"))
 
-    def save_model(self):
-        save_model(self.critic, join(self.save_folder,"critic"))
+        self.generator.load_weights(join(self.load_folder,"generator"))
 
-        save_model(self.generator, join(self.save_folder,"generator"))
+
+    def save_model(self, ext=''):
+        self.critic.save_weights(join(self.save_folder,"critic"+ext))
+
+        self.generator.save_weights(join(self.save_folder,"generator"+ext))
 
 if __name__ == '__main__':
     wgan = WGAN()

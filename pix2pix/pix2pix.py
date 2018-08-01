@@ -12,29 +12,44 @@ from keras.optimizers import Adam
 import datetime
 import matplotlib.pyplot as plt
 import sys
-from data_loader import DataLoader
+
 import numpy as np
 import os
+
+from os.path import join
+from os import makedirs
+
+from keras.models import save_model
+from keras.models import load_model
 
 class Pix2Pix():
     def __init__(self, config=None):
         if config is not None:
-            self.img_rows = config.getint("Model","rows")
-            self.img_cols = config.getint("Model","cols")
+            self.img_rows = config.getint("Model", "rows")
+            self.img_cols = config.getint("Model", "cols")
             self.channels = config.getint("Model", "channels")
-        else:
+            self.output_folder = config.get("Model", "output_folder")
+            self.save_folder = join(self.output_folder, "models")
+            self.load = config.getboolean("Model", "load")
+            self.load_folder = config.get("Model", "load_folder")
 
+        else:
             self.img_rows = 256
             self.img_cols = 256
             self.channels = 3
+            self.output_folder = "images"
+            self.save_path = "model"
+            self.load=False
 
 
+
+        makedirs(self.output_folder, exist_ok=True)
+        self.log_folder = join(self.output_folder, "logs")
+        makedirs(self.log_folder, exist_ok=True)
+        self.log_file = join(self.log_folder, "logs.csv")
+
+        self.img_dim = self.img_rows * self.img_cols * self.channels
         self.img_shape = (self.img_rows, self.img_cols, self.channels)
-
-        # Configure data loader
-        self.dataset_name = 'facades'
-        self.data_loader = DataLoader(dataset_name=self.dataset_name,
-                                      img_res=(self.img_rows, self.img_cols))
 
 
         # Calculate output shape of D (PatchGAN)
@@ -44,22 +59,24 @@ class Pix2Pix():
         # Number of filters in the first layer of G and D
         self.gf = 64
         self.df = 64
+        if not self.load:
+            optimizer = Adam(0.0002, 0.5)
 
-        optimizer = Adam(0.0002, 0.5)
+            # Build and compile the discriminator
+            self.discriminator = self.build_discriminator()
+            self.discriminator.compile(loss='mse',
+                optimizer=optimizer,
+                metrics=['accuracy'])
 
-        # Build and compile the discriminator
-        self.discriminator = self.build_discriminator()
-        self.discriminator.compile(loss='mse',
-            optimizer=optimizer,
-            metrics=['accuracy'])
+            #-------------------------
+            # Construct Computational
+            #   Graph of Generator
+            #-------------------------
 
-        #-------------------------
-        # Construct Computational
-        #   Graph of Generator
-        #-------------------------
+            # Build the generator
+            self.generator = self.build_generator()
 
-        # Build the generator
-        self.generator = self.build_generator()
+        else: self.load_model()
 
         # Input images and their conditioning images
         img_A = Input(shape=self.img_shape)
@@ -150,17 +167,21 @@ class Pix2Pix():
 
         return Model([img_A, img_B], validity)
 
-    def train(self, epochs, batch_size=1, sample_interval=50):
+    def train(self, X,  epochs, batch_size=1, sample_interval=50, **kwargs):
 
         start_time = datetime.datetime.now()
+
+        X = (X.astype(np.float32) - 127.5) / 127.5
 
         # Adversarial loss ground truths
         valid = np.ones((batch_size,) + self.disc_patch)
         fake = np.zeros((batch_size,) + self.disc_patch)
-
+        indicies = np.arange(0, len(X))
         for epoch in range(epochs):
-            for batch_i, (imgs_A, imgs_B) in enumerate(self.data_loader.load_batch(batch_size)):
-
+            for batch_i, in range(int(len(X)/batch_size)):
+                ind_A = np.random.choice(indicies, size=batch_size)
+                ind_B = np.random.choice(indicies, size=batch_size)
+                (imgs_A, imgs_B) = X[ind_A], X[ind_B]
                 # ---------------------
                 #  Train Discriminator
                 # ---------------------
@@ -190,13 +211,25 @@ class Pix2Pix():
 
                 # If at save interval => save generated image samples
                 if batch_i % sample_interval == 0:
-                    self.sample_images(epoch, batch_i)
+                    self.sample_images(epoch, batch_i, imgs_A[:3], imgs_B[:3])
 
-    def sample_images(self, epoch, batch_i):
-        os.makedirs('images/%s' % self.dataset_name, exist_ok=True)
+    def feed(self, img):
+        img = (img.astype(np.float32) - 127.5) / 127.5
+        img = img + (np.random.rand(img.shape)-0.5)
+        img[img<0] = 0; img[img>1]=1
+        self.__feed = self.generator.predict(img.reshape((1,)+self.img_shape))
+
+    def generate(self, n):
+
+        gen_imgs=[]
+        for _ in range(n):
+            self.__feed = self.generator(self.__feed.reshape((1,)+self.img_shape))
+            gen_imgs.append(self.__feed.copy())
+        return gen_imgs
+
+    def sample_images(self, epoch, batch_i, imgs_A, imgs_B):
         r, c = 3, 3
 
-        imgs_A, imgs_B = self.data_loader.load_data(batch_size=3, is_testing=True)
         fake_A = self.generator.predict(imgs_B)
 
         gen_imgs = np.concatenate([imgs_B, fake_A, imgs_A])
@@ -213,8 +246,35 @@ class Pix2Pix():
                 axs[i, j].set_title(titles[i])
                 axs[i,j].axis('off')
                 cnt += 1
-        fig.savefig("images/%s/%d_%d.png" % (self.dataset_name, epoch, batch_i))
+        fig.savefig(join(self.output_folder, "pix2pix_e%d-b%d.png" % (epoch, batch_i)))
         plt.close()
+
+
+    def load_model(self):
+
+        optimizer = Adam(0.0002, 0.5)
+
+        # Build and compile the discriminator
+        self.discriminator = load_model(join(self.load_folder,"discriminator"))
+
+        self.discriminator.compile(loss='mse',
+                                   optimizer=optimizer,
+                                   metrics=['accuracy'])
+
+        # -------------------------
+        # Construct Computational
+        #   Graph of Generator
+        # -------------------------
+
+        # Build the generator
+        self.generator = load_model(join(self.load_folder,"generator"))
+
+
+    def save_model(self):
+        save_model(self.generator, join(self.save_folder,"generator"))
+
+        save_model(self.discriminator, join(self.save_folder,"discriminator"))
+
 
 
 if __name__ == '__main__':
