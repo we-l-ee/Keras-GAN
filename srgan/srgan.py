@@ -30,11 +30,12 @@ import os
 
 import keras.backend as K
 
+
 class SRGAN():
     def __init__(self, config=None):
         if config is not None:
-            self.lr_width = config.getint("Model","rows")
-            self.lr_height = config.getint("Model","cols")
+            self.lr_width = config.getint("Model", "rows")
+            self.lr_height = config.getint("Model", "cols")
             self.channels = config.getint("Model", "channels")
         else:
             self.lr_width = 64  # Low resolution width
@@ -44,7 +45,6 @@ class SRGAN():
             self.hr_height = self.lr_height * 4  # High resolution height
             self.hr_width = self.lr_width * 4  # High resolution width
             self.hr_shape = (self.hr_height, self.hr_width, self.channels)
-
 
         # Number of residual blocks in the generator
         self.n_residual_blocks = 16
@@ -56,8 +56,8 @@ class SRGAN():
         self.vgg = self.build_vgg()
         self.vgg.trainable = False
         self.vgg.compile(loss='mse',
-            optimizer=optimizer,
-            metrics=['accuracy'])
+                         optimizer=optimizer,
+                         metrics=['accuracy'])
 
         # Configure data loader
         self.dataset_name = 'img_align_celeba'
@@ -65,7 +65,7 @@ class SRGAN():
                                       img_res=(self.hr_height, self.hr_width))
 
         # Calculate output shape of D (PatchGAN)
-        patch = int(self.hr_height / 2**4)
+        patch = int(self.hr_height / 2 ** 4)
         self.disc_patch = (patch, patch, 1)
 
         # Number of filters in the first layer of G and D
@@ -75,8 +75,8 @@ class SRGAN():
         # Build and compile the discriminator
         self.discriminator = self.build_discriminator()
         self.discriminator.compile(loss='mse',
-            optimizer=optimizer,
-            metrics=['accuracy'])
+                                   optimizer=optimizer,
+                                   metrics=['accuracy'])
 
         # Build the generator
         self.generator = self.build_generator()
@@ -101,7 +101,6 @@ class SRGAN():
         self.combined.compile(loss=['binary_crossentropy', 'mse'],
                               loss_weights=[1e-3, 1],
                               optimizer=optimizer)
-
 
     def build_vgg(self):
         """
@@ -180,14 +179,14 @@ class SRGAN():
 
         d1 = d_block(d0, self.df, bn=False)
         d2 = d_block(d1, self.df, strides=2)
-        d3 = d_block(d2, self.df*2)
-        d4 = d_block(d3, self.df*2, strides=2)
-        d5 = d_block(d4, self.df*4)
-        d6 = d_block(d5, self.df*4, strides=2)
-        d7 = d_block(d6, self.df*8)
-        d8 = d_block(d7, self.df*8, strides=2)
+        d3 = d_block(d2, self.df * 2)
+        d4 = d_block(d3, self.df * 2, strides=2)
+        d5 = d_block(d4, self.df * 4)
+        d6 = d_block(d5, self.df * 4, strides=2)
+        d7 = d_block(d6, self.df * 8)
+        d8 = d_block(d7, self.df * 8, strides=2)
 
-        d9 = Dense(self.df*16)(d8)
+        d9 = Dense(self.df * 16)(d8)
         d10 = LeakyReLU(alpha=0.2)(d9)
         validity = Dense(1, activation='sigmoid')(d10)
 
@@ -195,51 +194,51 @@ class SRGAN():
 
     def train(self, epochs, batch_size=1, sample_interval=50):
 
-        start_time = datetime.datetime.now()
+            start_time = datetime.datetime.now()
 
-        for epoch in range(epochs):
+            for epoch in range(epochs):
 
-            # ----------------------
-            #  Train Discriminator
-            # ----------------------
+                # ----------------------
+                #  Train Discriminator
+                # ----------------------
 
-            # Sample images and their conditioning counterparts
-            imgs_hr, imgs_lr = self.data_loader.load_data(batch_size)
+                # Sample images and their conditioning counterparts
+                imgs_hr, imgs_lr = self.data_loader.load_data(batch_size)
 
-            # From low res. image generate high res. version
-            fake_hr = self.generator.predict(imgs_lr)
+                # From low res. image generate high res. version
+                fake_hr = self.generator.predict(imgs_lr)
 
-            valid = np.ones((batch_size,) + self.disc_patch)
-            fake = np.zeros((batch_size,) + self.disc_patch)
+                valid = np.ones((batch_size,) + self.disc_patch)
+                fake = np.zeros((batch_size,) + self.disc_patch)
 
-            # Train the discriminators (original images = real / generated = Fake)
-            d_loss_real = self.discriminator.train_on_batch(imgs_hr, valid)
-            d_loss_fake = self.discriminator.train_on_batch(fake_hr, fake)
-            d_loss = 0.5 * np.add(d_loss_real, d_loss_fake)
+                # Train the discriminators (original images = real / generated = Fake)
+                d_loss_real = self.discriminator.train_on_batch(imgs_hr, valid)
+                d_loss_fake = self.discriminator.train_on_batch(fake_hr, fake)
+                d_loss = 0.5 * np.add(d_loss_real, d_loss_fake)
 
-            # ------------------
-            #  Train Generator
-            # ------------------
+                # ------------------
+                #  Train Generator
+                # ------------------
 
-            # Sample images and their conditioning counterparts
-            imgs_hr, imgs_lr = self.data_loader.load_data(batch_size)
+                # Sample images and their conditioning counterparts
+                imgs_hr, imgs_lr = self.data_loader.load_data(batch_size)
 
-            # The generators want the discriminators to label the generated images as real
-            valid = np.ones((batch_size,) + self.disc_patch)
+                # The generators want the discriminators to label the generated images as real
+                valid = np.ones((batch_size,) + self.disc_patch)
 
-            # Extract ground truth image features using pre-trained VGG19 model
-            image_features = self.vgg.predict(imgs_hr)
+                # Extract ground truth image features using pre-trained VGG19 model
+                image_features = self.vgg.predict(imgs_hr)
 
-            # Train the generators
-            g_loss = self.combined.train_on_batch([imgs_lr, imgs_hr], [valid, image_features])
+                # Train the generators
+                g_loss = self.combined.train_on_batch([imgs_lr, imgs_hr], [valid, image_features])
 
-            elapsed_time = datetime.datetime.now() - start_time
-            # Plot the progress
-            print ("%d time: %s" % (epoch, elapsed_time))
+                elapsed_time = datetime.datetime.now() - start_time
+                # Plot the progress
+                print("%d time: %s" % (epoch, elapsed_time))
 
-            # If at save interval => save generated image samples
-            if epoch % sample_interval == 0:
-                self.sample_images(epoch)
+                # If at save interval => save generated image samples
+                if epoch % sample_interval == 0:
+                    self.sample_images(epoch)
 
     def sample_images(self, epoch):
         os.makedirs('images/%s' % self.dataset_name, exist_ok=True)
@@ -272,6 +271,7 @@ class SRGAN():
             plt.imshow(imgs_lr[i])
             fig.savefig('images/%s/%d_lowres%d.png' % (self.dataset_name, epoch, i))
             plt.close()
+
 
 if __name__ == '__main__':
     gan = SRGAN()

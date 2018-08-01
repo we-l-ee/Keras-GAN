@@ -53,7 +53,7 @@ class DUALGAN():
         # Build and compile the discriminators
         if not self.load:
             #optimizer = Adam(0.0002, 0.5)
-            optimizer = SGD()
+            optimizer = RMSprop()
             self.D_A = self.build_discriminator()
             self.D_A.compile(loss=self.wasserstein_loss,
                              optimizer=optimizer,
@@ -222,12 +222,13 @@ class DUALGAN():
                 print("%d [D1 loss: %f] [D2 loss: %f] [G loss: %f]" \
                       % (epoch, D_A_loss[0], D_B_loss[0], g_loss[0]))
                 logger.writerow([epoch, D_A_loss[0], D_B_loss[0], g_loss[0]])
+                fout.flush()
 
                 # If at save interval => save generated image samples
                 if epoch % sample_interval == 0:
                     self.save_imgs(epoch, X_A, X_B)
 
-            save_model(self.combined, self.save_path)
+            self.save_model()
 
     def save_imgs(self, epoch, X_A, X_B):
         r, c = 4, 4
@@ -281,7 +282,7 @@ class DUALGAN():
     def save_model(self):
         save_model(self.D_A, join(self.save_folder,"D_A"))
 
-        load_model(self.D_B, join(self.save_folder,"D_B"))
+        save_model(self.D_B, join(self.save_folder,"D_B"))
 
         # -------------------------
         # Construct Computational
@@ -289,8 +290,8 @@ class DUALGAN():
         # -------------------------
 
         # Build the generators
-        load_model(self.G_AB, join(self.save_folder,"G_AB"))
-        load_model(self.G_BA, join(self.save_folder,"G_BA"))
+        save_model(self.G_AB, join(self.save_folder,"G_AB"))
+        save_model(self.G_BA, join(self.save_folder,"G_BA"))
 
 # if __name__ == '__main__':
 #     gan = DUALGAN()

@@ -4,34 +4,36 @@
 
 ## Articles and Summaries
 ### Sorted by citations
+1. [1701.07875](#wgan) Wasserstein GAN, **cite:797**
 1. [1411.1784] Conditional Generative Adversarial Nets, cite:717
 1. [1511.05644] Adversarial Autoencoders, cite:355
 1. [1610.09585] Conditional Image Synthesis With Auxiliary Classifier GANs, cite:276
-1. [1605.09782] Adversarial Feature Learning, cite:274
+1. [1605.09782](#bigan) BiGAN Adversarial Feature Learning, **cite:274**
 1. [1702.08431] Boundary-Seeking Generative Adversarial Networks, cite:35
 1. [1611.06430] Semi-Supervised Learning with Context-Conditional Generative Adversarial Networks, cite:19
+1. [1704.00028](#wgan-gp) Improved Training of Wasserstein GANs, **cite:4**
 
 ### Sorted by date
-1. [1704.00028] Improved Training of Wasserstein GANs
-1. [1704.02510] DualGAN: Unsupervised Dual Learning for Image-to-Image Translation
+1. [1704.00028](#wgan-gp) Improved Training of Wasserstein GANs, **cite:4**
+1. [1704.02510](#dualgan) DualGAN: Unsupervised Dual Learning for Image-to-Image Translation, **cite:130**
 1. [1703.05192] Learning to Discover Cross-Domain Relations with Generative Adversarial Networks
 1. [1703.10593] Unpaired Image-to-Image Translation using Cycle-Consistent Adversarial Networks
-1. [1702.08431] Boundary-Seeking Generative Adversarial Networks, cite:35
-1. [1701.07875] Wasserstein GAN
+1. [1702.08431] Boundary-Seeking Generative Adversarial Networks, **cite:35**
+1. [1701.07875](#wgan) Wasserstein GAN, **cite:797**
 1. [1612.05424] Unsupervised Pixel-Level Domain Adaptation with Generative Adversarial Networks
-1. [1611.06430] Semi-Supervised Learning with Context-Conditional Generative Adversarial Networks, cite:19
+1. [1611.06430] Semi-Supervised Learning with Context-Conditional Generative Adversarial Networks, **cite:19**
 1. [1611.04076] Least Squares Generative Adversarial Networks
 1. [1611.07004] Image-to-Image Translation with Conditional Adversarial Networks
-1. [1610.09585] Conditional Image Synthesis With Auxiliary Classifier GANs, cite:276
+1. [1610.09585] Conditional Image Synthesis With Auxiliary Classifier GANs, **cite:276**
 1. [1609.04802] Photo-Realistic Single Image Super-Resolution Using a Generative Adversarial Network
 1. [1606.07536] Coupled Generative Adversarial Networks
 1. [1606.03657] InfoGAN: Interpretable Representation Learning by Information Maximizing Generative Adversarial Nets
 1. [1606.01583] Semi-Supervised Learning with Generative Adversarial Networks
-1. [1605.09782] Adversarial Feature Learning, cite:274
+1. [1605.09782](#bigan) BiGAN Adversarial Feature Learning, **cite:274**
 1. [1604.07379] Context Encoders: Feature Learning by Inpainting
-1. [1511.05644] Adversarial Autoencoders, cite:355
+1. [1511.05644] Adversarial Autoencoders, **cite:355**
 1. [1511.06434] Unsupervised Representation Learning with Deep Convolutional Generative Adversarial Networks
-1. [1411.1784] Conditional Generative Adversarial Nets, cite:717
+1. [1411.1784] Conditional Generative Adversarial Nets, **cite:717**
 1. [1406.2661] Generative Adversarial Networks
 
 ## Keras-GAN
@@ -119,6 +121,8 @@ $ python3 bigan.py
 
 ### BGAN
 Implementation of _Boundary-Seeking Generative Adversarial Networks_.
+
+>  It assumes encoding such that G(E(z))=z where G() is generator, E() is encoder.
 
 [Code](bgan/bgan.py)
 

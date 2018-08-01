@@ -15,40 +15,67 @@ import keras.backend as K
 import matplotlib.pyplot as plt
 
 import numpy as np
+from os.path import join
+from os import makedirs
+
+from keras.models import save_model
+from keras.models import load_model
+
 
 class BIGAN():
     def __init__(self, config=None):
         if config is not None:
-            self.img_rows = config.getint("Model","rows")
-            self.img_cols = config.getint("Model","cols")
+            self.img_rows = config.getint("Model", "rows")
+            self.img_cols = config.getint("Model", "cols")
             self.channels = config.getint("Model", "channels")
+            self.output_folder = config.get("Model", "output_folder")
+            self.save_folder = join(self.output_folder, "models")
+            self.load = config.getboolean("Model", "load")
+            self.load_folder = config.get("Model", "load_folder")
+            self.latent_dim = config.getint("Model", "latent_dim")
         else:
             self.img_rows = 28
             self.img_cols = 28
             self.channels = 1
+            self.output_folder = "images"
+            self.save_path = "model"
+            self.load = False
+            self.latent_dim = 100
 
+        makedirs(self.output_folder, exist_ok=True)
+        self.log_folder = join(self.output_folder, "logs")
+        makedirs(self.log_folder, exist_ok=True)
+        self.log_file = join(self.log_folder, "logs.csv")
+
+        self.img_dim = self.img_rows * self.img_cols * self.channels
         self.img_shape = (self.img_rows, self.img_cols, self.channels)
-        self.latent_dim = 100
 
-        optimizer = Adam(0.0002, 0.5)
 
-        # Build and compile the discriminator
-        self.discriminator = self.build_discriminator()
-        self.discriminator.compile(loss=['binary_crossentropy'],
-            optimizer=optimizer,
-            metrics=['accuracy'])
 
-        # Build the generator
-        self.generator = self.build_generator()
 
-        # Build the encoder
-        self.encoder = self.build_encoder()
+        if not self.load:
+            optimizer = Adam(0.0002, 0.5)
+
+            # Build and compile the discriminator
+            self.discriminator = self.build_discriminator()
+            self.discriminator.compile(loss=['binary_crossentropy'],
+                                       optimizer=optimizer,
+                                       metrics=['accuracy'])
+
+            # Build the generator
+            self.generator = self.build_generator()
+
+            # Build the encoder
+            self.encoder = self.build_encoder()
+
+        else:
+            self.load_model()
 
         # The part of the bigan that trains the discriminator and encoder
         self.discriminator.trainable = False
 
         # Generate image from sampled noise
-        z = Input(shape=(self.latent_dim, ))
+        z = Input(shape=(self.latent_dim,))
         img_ = self.generator(z)
 
         # Encode image
@@ -63,8 +90,7 @@ class BIGAN():
         # Trains generator to fool the discriminator
         self.bigan_generator = Model([z, img], [fake, valid])
         self.bigan_generator.compile(loss=['binary_crossentropy', 'binary_crossentropy'],
-            optimizer=optimizer)
-
+                                     optimizer=optimizer)
 
     def build_encoder(self):
         model = Sequential()
@@ -106,7 +132,7 @@ class BIGAN():
 
     def build_discriminator(self):
 
-        z = Input(shape=(self.latent_dim, ))
+        z = Input(shape=(self.latent_dim,))
         img = Input(shape=self.img_shape)
         d_in = concatenate([z, Flatten()(img)])
 
@@ -123,53 +149,57 @@ class BIGAN():
 
         return Model([z, img], validity)
 
-    def train(self, epochs, batch_size=128, sample_interval=50):
-
-        # Load the dataset
-        (X_train, _), (_, _) = mnist.load_data()
-
-        # Rescale -1 to 1
-        X_train = (X_train.astype(np.float32) - 127.5) / 127.5
-        X_train = np.expand_dims(X_train, axis=3)
-
-        # Adversarial ground truths
-        valid = np.ones((batch_size, 1))
-        fake = np.zeros((batch_size, 1))
-
-        for epoch in range(epochs):
+    def train(self, X, epochs, batch_size=128, sample_interval=50, **kwargs):
+        import csv
+        with open(self.log_file, 'w') as fout:
+            logger = csv.writer(fout, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
+            logger.writerow(["Epoch", "loss", "acc", "G loss"])
 
 
-            # ---------------------
-            #  Train Discriminator
-            # ---------------------
+            # Rescale -1 to 1
+            X = (X.astype(np.float32) - 127.5) / 127.5
+            X = np.expand_dims(X, axis=3)
 
-            # Sample noise and generate img
-            z = np.random.normal(size=(batch_size, self.latent_dim))
-            imgs_ = self.generator.predict(z)
+            # Adversarial ground truths
+            valid = np.ones((batch_size, 1))
+            fake = np.zeros((batch_size, 1))
 
-            # Select a random batch of images and encode
-            idx = np.random.randint(0, X_train.shape[0], batch_size)
-            imgs = X_train[idx]
-            z_ = self.encoder.predict(imgs)
+            for epoch in range(epochs):
 
-            # Train the discriminator (img -> z is valid, z -> img is fake)
-            d_loss_real = self.discriminator.train_on_batch([z_, imgs], valid)
-            d_loss_fake = self.discriminator.train_on_batch([z, imgs_], fake)
-            d_loss = 0.5 * np.add(d_loss_real, d_loss_fake)
+                # ---------------------
+                #  Train Discriminator
+                # ---------------------
 
-            # ---------------------
-            #  Train Generator
-            # ---------------------
+                # Sample noise and generate img
+                z = np.random.normal(size=(batch_size, self.latent_dim))
+                imgs_ = self.generator.predict(z)
 
-            # Train the generator (z -> img is valid and img -> z is is invalid)
-            g_loss = self.bigan_generator.train_on_batch([z, imgs], [valid, fake])
+                # Select a random batch of images and encode
+                idx = np.random.randint(0, X.shape[0], batch_size)
+                imgs = X[idx]
+                z_ = self.encoder.predict(imgs)
 
-            # Plot the progress
-            print ("%d [D loss: %f, acc: %.2f%%] [G loss: %f]" % (epoch, d_loss[0], 100*d_loss[1], g_loss[0]))
+                # Train the discriminator (img -> z is valid, z -> img is fake)
+                d_loss_real = self.discriminator.train_on_batch([z_, imgs], valid)
+                d_loss_fake = self.discriminator.train_on_batch([z, imgs_], fake)
+                d_loss = 0.5 * np.add(d_loss_real, d_loss_fake)
 
-            # If at save interval => save generated image samples
-            if epoch % sample_interval == 0:
-                self.sample_interval(epoch)
+                # ---------------------
+                #  Train Generator
+                # ---------------------
+
+                # Train the generator (z -> img is valid and img -> z is is invalid)
+                g_loss = self.bigan_generator.train_on_batch([z, imgs], [valid, fake])
+
+                # Plot the progress
+                print("%d [D loss: %f, acc: %.2f%%] [G loss: %f]" % (epoch, d_loss[0], 100 * d_loss[1], g_loss[0]))
+                logger.writerow([epoch, d_loss[0], 100 * d_loss[1], g_loss[0]])
+                fout.flush()
+
+                # If at save interval => save generated image samples
+                if epoch % sample_interval == 0:
+                    self.sample_interval(epoch)
+            self.save_model()
 
     def sample_interval(self, epoch):
         r, c = 5, 5
@@ -182,12 +212,33 @@ class BIGAN():
         cnt = 0
         for i in range(r):
             for j in range(c):
-                axs[i,j].imshow(gen_imgs[cnt, :,:,0], cmap='gray')
-                axs[i,j].axis('off')
+                axs[i, j].imshow(gen_imgs[cnt, :, :, 0], cmap='gray')
+                axs[i, j].axis('off')
                 cnt += 1
-        fig.savefig("images/mnist_%d.png" % epoch)
+        fig.savefig(join(self.output_folder, "BiGAN_%d.png" % epoch))
         plt.close()
 
+    def load_model(self):
+        optimizer = Adam(0.0002, 0.5)
+
+        # Build and compile the discriminator
+        self.discriminator =  load_model(join(self.load_folder, "discriminator"))
+        self.discriminator.compile(loss=['binary_crossentropy'],
+                                   optimizer=optimizer,
+                                   metrics=['accuracy'])
+
+        # Build the generator
+        self.generator = load_model(join(self.load_folder, "generator"))
+
+        # Build the encoder
+        self.encoder = load_model(join(self.load_folder, "encoder"))
+
+    def save_model(self):
+        save_model(self.generator, join(self.save_folder, "generator"))
+
+        save_model(self.encoder, join(self.save_folder, "encoder"))
+
+        save_model(self.discriminator, join(self.save_folder, "discriminator"))
 
 if __name__ == '__main__':
     bigan = BIGAN()
