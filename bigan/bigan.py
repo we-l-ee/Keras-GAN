@@ -29,10 +29,12 @@ class BIGAN():
             self.img_cols = config.getint("Model", "cols")
             self.channels = config.getint("Model", "channels")
             self.output_folder = config.get("Model", "output_folder")
-            self.save_folder = join(self.output_folder, "models")
             self.load = config.getboolean("Model", "load")
             self.load_folder = config.get("Model", "load_folder")
             self.latent_dim = config.getint("Model", "latent_dim")
+            self.last_epoch = config.getint('Model', "last_epoch")
+            self.backup = config.getboolean("Model", 'backup')
+            self.backup_interval = config.getint("Model", 'backup_interval')
         else:
             self.img_rows = 28
             self.img_cols = 28
@@ -41,11 +43,13 @@ class BIGAN():
             self.save_path = "model"
             self.load = False
             self.latent_dim = 100
+            self.last_epoch = 0
 
-        makedirs(self.output_folder, exist_ok=True)
+        self.save_folder = join(self.output_folder, "models")
         self.log_folder = join(self.output_folder, "logs")
-        makedirs(self.log_folder, exist_ok=True)
         self.log_file = join(self.log_folder, "logs.csv")
+        makedirs(self.log_folder, exist_ok=True)
+        makedirs(self.save_folder, exist_ok=True)
 
         self.img_dim = self.img_rows * self.img_cols * self.channels
         self.img_shape = (self.img_rows, self.img_cols, self.channels)
@@ -53,23 +57,23 @@ class BIGAN():
 
 
 
-        if not self.load:
-            optimizer = Adam(0.0002, 0.5)
+        optimizer = Adam(0.0002, 0.5)
 
-            # Build and compile the discriminator
-            self.discriminator = self.build_discriminator()
-            self.discriminator.compile(loss=['binary_crossentropy'],
-                                       optimizer=optimizer,
-                                       metrics=['accuracy'])
+        # Build and compile the discriminator
+        self.discriminator = self.build_discriminator()
 
-            # Build the generator
-            self.generator = self.build_generator()
 
-            # Build the encoder
-            self.encoder = self.build_encoder()
+        # Build the generator
+        self.generator = self.build_generator()
 
-        else:
-            self.load_model()
+        # Build the encoder
+        self.encoder = self.build_encoder()
+
+        if self.load: self.load_model()
+
+        self.discriminator.compile(loss=['binary_crossentropy'],
+                                   optimizer=optimizer,
+                                   metrics=['accuracy'])
 
         # The part of the bigan that trains the discriminator and encoder
         self.discriminator.trainable = False
@@ -149,7 +153,9 @@ class BIGAN():
 
         return Model([z, img], validity)
 
-    def train(self, X, epochs, batch_size=128, sample_interval=50, **kwargs):
+    def train(self, data, epochs, batch_size=128, sample_interval=50):
+        X, _ = data
+
         import csv
         with open(self.log_file, 'w') as fout:
             logger = csv.writer(fout, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
@@ -164,7 +170,7 @@ class BIGAN():
             valid = np.ones((batch_size, 1))
             fake = np.zeros((batch_size, 1))
 
-            for epoch in range(epochs):
+            for epoch in range(self.last_epoch, epochs + self.last_epoch):
 
                 # ---------------------
                 #  Train Discriminator
@@ -199,6 +205,11 @@ class BIGAN():
                 # If at save interval => save generated image samples
                 if epoch % sample_interval == 0:
                     self.sample_interval(epoch)
+
+                if self.backup and epoch % self.backup_interval == 0:
+                    self.save_model(ext='_e'+str(epoch))
+
+
             self.save_model()
 
     def sample_interval(self, epoch):
@@ -218,28 +229,19 @@ class BIGAN():
         fig.savefig(join(self.output_folder, "BiGAN_%d.png" % epoch))
         plt.close()
 
+
     def load_model(self):
-        optimizer = Adam(0.0002, 0.5)
 
-        # Build and compile the discriminator
-        self.discriminator =  load_model(join(self.load_folder, "discriminator"))
-        self.discriminator.compile(loss=['binary_crossentropy'],
-                                   optimizer=optimizer,
-                                   metrics=['accuracy'])
+        self.discriminator.load_weights(join(self.load_folder,"discriminator"))
 
-        # Build the generator
-        self.generator = load_model(join(self.load_folder, "generator"))
+        self.generator.load_weights(join(self.load_folder,"generator"))
+        self.encoder.load_weights(join(self.load_folder,"encoder"))
 
-        # Build the encoder
-        self.encoder = load_model(join(self.load_folder, "encoder"))
 
-    def save_model(self):
-        save_model(self.generator, join(self.save_folder, "generator"))
-
-        save_model(self.encoder, join(self.save_folder, "encoder"))
-
-        save_model(self.discriminator, join(self.save_folder, "discriminator"))
-
+    def save_model(self, ext=''):
+        self.generator.save_weights(join(self.save_folder,"generator"+ext))
+        self.encoder.save_weights(join(self.save_folder,"encoder"+ext))
+        self.discriminator.save_weights(join(self.save_folder,"discriminator"+ext))
 if __name__ == '__main__':
     bigan = BIGAN()
     bigan.train(epochs=40000, batch_size=32, sample_interval=400)

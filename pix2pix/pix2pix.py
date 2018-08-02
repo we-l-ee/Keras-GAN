@@ -29,9 +29,12 @@ class Pix2Pix():
             self.img_cols = config.getint("Model", "cols")
             self.channels = config.getint("Model", "channels")
             self.output_folder = config.get("Model", "output_folder")
-            self.save_folder = join(self.output_folder, "models")
             self.load = config.getboolean("Model", "load")
-            self.load_folder = config.get("Model", "load_folder")
+            self.load_folder = join(config.get("Model", "load_folder"), "models")
+            self.last_epoch = config.getint('Model', "last_epoch")
+            self.backup = config.getboolean("Model", 'backup')
+            self.backup_interval = config.getint("Model", 'backup_interval')
+            lr = config.getfloat("Model", "lr")
 
         else:
             self.img_rows = 256
@@ -40,13 +43,13 @@ class Pix2Pix():
             self.output_folder = "images"
             self.save_path = "model"
             self.load=False
+            self.last_epoch = 0
 
-
-
-        makedirs(self.output_folder, exist_ok=True)
+        self.save_folder = join(self.output_folder, "models")
         self.log_folder = join(self.output_folder, "logs")
-        makedirs(self.log_folder, exist_ok=True)
         self.log_file = join(self.log_folder, "logs.csv")
+        makedirs(self.save_folder, exist_ok=True)
+        makedirs(self.log_folder, exist_ok=True)
 
         self.img_dim = self.img_rows * self.img_cols * self.channels
         self.img_shape = (self.img_rows, self.img_cols, self.channels)
@@ -59,24 +62,26 @@ class Pix2Pix():
         # Number of filters in the first layer of G and D
         self.gf = 64
         self.df = 64
-        if not self.load:
-            optimizer = Adam(0.0002, 0.5)
+        optimizer = Adam(0.0002, 0.5)
 
-            # Build and compile the discriminator
-            self.discriminator = self.build_discriminator()
-            self.discriminator.compile(loss='mse',
-                optimizer=optimizer,
-                metrics=['accuracy'])
+        # Build and compile the discriminator
+        self.discriminator = self.build_discriminator()
+        self.discriminator.compile(loss='mse',
+            optimizer=optimizer,
+            metrics=['accuracy'])
 
-            #-------------------------
-            # Construct Computational
-            #   Graph of Generator
-            #-------------------------
+        #-------------------------
+        # Construct Computational
+        #   Graph of Generator
+        #-------------------------
 
-            # Build the generator
-            self.generator = self.build_generator()
+        # Build the generator
+        self.generator = self.build_generator()
 
-        else: self.load_model()
+        self.discriminator.summary()
+        self.generator.summary()
+
+        if self.load: self.load_model()
 
         # Input images and their conditioning images
         img_A = Input(shape=self.img_shape)
@@ -140,6 +145,8 @@ class Pix2Pix():
         u7 = UpSampling2D(size=2)(u6)
         output_img = Conv2D(self.channels, kernel_size=4, strides=1, padding='same', activation='tanh')(u7)
 
+        u7.summary()
+
         return Model(d0, output_img)
 
     def build_discriminator(self):
@@ -163,11 +170,14 @@ class Pix2Pix():
         d3 = d_layer(d2, self.df*4)
         d4 = d_layer(d3, self.df*8)
 
+
         validity = Conv2D(1, kernel_size=4, strides=1, padding='same')(d4)
+
 
         return Model([img_A, img_B], validity)
 
-    def train(self, X,  epochs, batch_size=1, sample_interval=50, **kwargs):
+    def train(self, data, epochs, batch_size=1, sample_interval=50):
+        X, _ = data
 
         start_time = datetime.datetime.now()
 
@@ -177,7 +187,7 @@ class Pix2Pix():
         valid = np.ones((batch_size,) + self.disc_patch)
         fake = np.zeros((batch_size,) + self.disc_patch)
         indicies = np.arange(0, len(X))
-        for epoch in range(epochs):
+        for epoch in range(self.last_epoch, epochs+self.last_epoch):
             for batch_i, in range(int(len(X)/batch_size)):
                 ind_A = np.random.choice(indicies, size=batch_size)
                 ind_B = np.random.choice(indicies, size=batch_size)
@@ -212,6 +222,11 @@ class Pix2Pix():
                 # If at save interval => save generated image samples
                 if batch_i % sample_interval == 0:
                     self.sample_images(epoch, batch_i, imgs_A[:3], imgs_B[:3])
+
+                if self.backup and epoch % self.backup_interval == 0:
+                    self.save_model(ext='_e'+str(epoch))
+
+        self.save_model()
 
     def feed(self, img):
         img = (img.astype(np.float32) - 127.5) / 127.5
@@ -252,28 +267,14 @@ class Pix2Pix():
 
     def load_model(self):
 
-        optimizer = Adam(0.0002, 0.5)
+        self.discriminator.load_weights(join(self.load_folder,"discriminator"))
 
-        # Build and compile the discriminator
-        self.discriminator = load_model(join(self.load_folder,"discriminator"))
-
-        self.discriminator.compile(loss='mse',
-                                   optimizer=optimizer,
-                                   metrics=['accuracy'])
-
-        # -------------------------
-        # Construct Computational
-        #   Graph of Generator
-        # -------------------------
-
-        # Build the generator
-        self.generator = load_model(join(self.load_folder,"generator"))
+        self.generator.load_weights(join(self.load_folder,"generator"))
 
 
-    def save_model(self):
-        save_model(self.generator, join(self.save_folder,"generator"))
-
-        save_model(self.discriminator, join(self.save_folder,"discriminator"))
+    def save_model(self, ext=''):
+        self.generator.save_weights(join(self.save_folder,"generator"+ext))
+        self.discriminator.save_weights(join(self.save_folder,"discriminator"+ext))
 
 
 

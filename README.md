@@ -30,8 +30,8 @@
 1. [1606.03657](#infogan) InfoGAN: Interpretable Representation Learning by Information Maximizing Generative Adversarial Nets, **cite:491**
 1. [1606.01583](#sgan) Semi-Supervised Learning with Generative Adversarial Networks, **cite:81**
 1. [1605.09782](#bigan) BiGAN Adversarial Feature Learning, **cite:274**
-1. [1604.07379](#Context-Encoder) Context Encoders: Feature Learning by Inpainting, **cite:494**
-1. [1511.05644](#Adversarial-Autoencoder) Adversarial Autoencoders, **cite:355**
+1. [1604.07379](#context-encoder) Context Encoders: Feature Learning by Inpainting, **cite:494**
+1. [1511.05644](#adversarial-autoencoder) Adversarial Autoencoders, **cite:355**
 1. [1511.06434] Unsupervised Representation Learning with Deep Convolutional Generative Adversarial Networks
 1. [1411.1784] Conditional Generative Adversarial Nets, **cite:717**
 1. [1406.2661] Generative Adversarial Networks
@@ -41,6 +41,8 @@
 1. [1611.07004](#pix2pix) Image-to-Image Translation with Conditional Adversarial Networks, **cite:940**
 1. [1704.02510](#dualgan) DualGAN: Unsupervised Dual Learning for Image-to-Image Translation, **cite:130**
 1. [1701.07875](#wgan) Wasserstein GAN, **cite:797**
+1. [1606.03657](#infogan) InfoGAN: Interpretable Representation Learning by Information Maximizing Generative Adversarial Nets, **cite:491**
+1. [1605.09782](#bigan) BiGAN Adversarial Feature Learning, **cite:274**
 1. [1702.08431](#bgan) Boundary-Seeking Generative Adversarial Networks, **cite:36**
 1. [1612.05424](#pixelda) Unsupervised Pixel-Level Domain Adaptation with Generative Adversarial Networks, **cite:155**
 1. [1611.06430](#cc-gan) Semi-Supervised Learning with Context-Conditional Generative Adversarial Networks, **cite:19**

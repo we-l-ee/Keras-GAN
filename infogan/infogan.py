@@ -14,21 +14,44 @@ import matplotlib.pyplot as plt
 
 import numpy as np
 
+from os.path import join
+from os import makedirs
+
+
 class INFOGAN():
     def __init__(self, config=None):
         if config is not None:
-            self.img_rows = config.getint("Model","rows")
-            self.img_cols = config.getint("Model","cols")
+            self.img_rows = config.getint("Model", "rows")
+            self.img_cols = config.getint("Model", "cols")
             self.channels = config.getint("Model", "channels")
+            self.output_folder = config.get("Model", "output_folder")
+            self.load = config.getboolean("Model", "load")
+            self.load_folder = config.get("Model", "load_folder")
+            self.latent_dim = config.getint("Model", "latent_dim")
+            self.last_epoch = config.getint('Model', "last_epoch")
+            self.backup = config.getboolean("Model", 'backup')
+            self.backup_interval = config.getint("Model", 'backup_interval')
+            self.num_classes = config.getint("Model", 'num_classes')
+
         else:
             self.img_rows = 28
             self.img_cols = 28
             self.channels = 1
+            self.output_folder = "images"
+            self.save_path = "model"
+            self.load = False
+            self.latent_dim = 72
+            self.last_epoch = 0
+            self.num_classes = 10
 
-        self.num_classes = 10
+        self.save_folder = join(self.output_folder, "models")
+        self.log_folder = join(self.output_folder, "logs")
+        self.log_file = join(self.log_folder, "logs.csv")
+        makedirs(self.log_folder, exist_ok=True)
+        makedirs(self.save_folder, exist_ok=True)
+
+        self.img_dim = self.img_rows * self.img_cols * self.channels
         self.img_shape = (self.img_rows, self.img_cols, self.channels)
-        self.latent_dim = 72
-
 
         optimizer = Adam(0.0002, 0.5)
         losses = ['binary_crossentropy', self.mutual_info_loss]
@@ -36,17 +59,19 @@ class INFOGAN():
         # Build and the discriminator and recognition network
         self.discriminator, self.auxilliary = self.build_disk_and_q_net()
 
+        # Build the generator
+        self.generator = self.build_generator()
+
+        if self.load: self.load_model()
+
         self.discriminator.compile(loss=['binary_crossentropy'],
-            optimizer=optimizer,
-            metrics=['accuracy'])
+                                   optimizer=optimizer,
+                                   metrics=['accuracy'])
 
         # Build and compile the recognition network Q
         self.auxilliary.compile(loss=[self.mutual_info_loss],
-            optimizer=optimizer,
-            metrics=['accuracy'])
-
-        # Build the generator
-        self.generator = self.build_generator()
+                                optimizer=optimizer,
+                                metrics=['accuracy'])
 
         # The generator takes noise and the target label as input
         # and generates the corresponding digit of that label
@@ -64,8 +89,7 @@ class INFOGAN():
         # The combined model  (stacked generator and discriminator)
         self.combined = Model(gen_input, [valid, target_label])
         self.combined.compile(loss=losses,
-            optimizer=optimizer)
-
+                              optimizer=optimizer)
 
     def build_generator(self):
 
@@ -92,7 +116,6 @@ class INFOGAN():
 
         return Model(gen_input, img)
 
-
     def build_disk_and_q_net(self):
 
         img = Input(shape=self.img_shape)
@@ -103,7 +126,7 @@ class INFOGAN():
         model.add(LeakyReLU(alpha=0.2))
         model.add(Dropout(0.25))
         model.add(Conv2D(128, kernel_size=3, strides=2, padding="same"))
-        model.add(ZeroPadding2D(padding=((0,1),(0,1))))
+        model.add(ZeroPadding2D(padding=((0, 1), (0, 1))))
         model.add(LeakyReLU(alpha=0.2))
         model.add(Dropout(0.25))
         model.add(BatchNormalization(momentum=0.8))
@@ -129,7 +152,6 @@ class INFOGAN():
         # Return discriminator and recognition network
         return Model(img, validity), Model(img, label)
 
-
     def mutual_info_loss(self, c, c_given_x):
         """The mutual information metric we aim to minimize"""
         eps = 1e-8
@@ -146,56 +168,68 @@ class INFOGAN():
 
         return sampled_noise, sampled_labels
 
-    def train(self, epochs, batch_size=128, sample_interval=50):
+    def train(self, data, epochs, batch_size=128, sample_interval=50):
 
         # Load the dataset
-        (X_train, y_train), (_, _) = mnist.load_data()
+        X, y_train = data
 
         # Rescale -1 to 1
-        X_train = (X_train.astype(np.float32) - 127.5) / 127.5
-        X_train = np.expand_dims(X_train, axis=3)
+        X = (X.astype(np.float32) - 127.5) / 127.5
+        X = np.expand_dims(X, axis=3)
         y_train = y_train.reshape(-1, 1)
 
         # Adversarial ground truths
         valid = np.ones((batch_size, 1))
         fake = np.zeros((batch_size, 1))
+        import csv
+        with open(self.log_file, 'w') as fout:
+            logger = csv.writer(fout, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
+            logger.writerow(["Epoch", "D loss", "acc", "Q loss", "G loss"])
 
-        for epoch in range(epochs):
+            for epoch in range(self.last_epoch, epochs + self.last_epoch):
 
-            # ---------------------
-            #  Train Discriminator
-            # ---------------------
+                # ---------------------
+                #  Train Discriminator    def train(self, X, epochs, batch_size=128, sample_interval=50, **kwargs):
+                # ---------------------
 
-            # Select a random half batch of images
-            idx = np.random.randint(0, X_train.shape[0], batch_size)
-            imgs = X_train[idx]
+                # Select a random half batch of images
+                idx = np.random.randint(0, X.shape[0], batch_size)
+                imgs = X[idx]
 
-            # Sample noise and categorical labels
-            sampled_noise, sampled_labels = self.sample_generator_input(batch_size)
-            gen_input = np.concatenate((sampled_noise, sampled_labels), axis=1)
+                # Sample noise and categorical labels
+                sampled_noise, sampled_labels = self.sample_generator_input(batch_size)
+                gen_input = np.concatenate((sampled_noise, sampled_labels), axis=1)
 
-            # Generate a half batch of new images
-            gen_imgs = self.generator.predict(gen_input)
+                # Generate a half batch of new images
+                gen_imgs = self.generator.predict(gen_input)
 
-            # Train on real and generated data
-            d_loss_real = self.discriminator.train_on_batch(imgs, valid)
-            d_loss_fake = self.discriminator.train_on_batch(gen_imgs, fake)
+                # Train on real and generated data
+                d_loss_real = self.discriminator.train_on_batch(imgs, valid)
+                d_loss_fake = self.discriminator.train_on_batch(gen_imgs, fake)
 
-            # Avg. loss
-            d_loss = 0.5 * np.add(d_loss_real, d_loss_fake)
+                # Avg. loss
+                d_loss = 0.5 * np.add(d_loss_real, d_loss_fake)
 
-            # ---------------------
-            #  Train Generator and Q-network
-            # ---------------------
+                # ---------------------
+                #  Train Generator and Q-network
+                # ---------------------
 
-            g_loss = self.combined.train_on_batch(gen_input, [valid, sampled_labels])
+                g_loss = self.combined.train_on_batch(gen_input, [valid, sampled_labels])
 
-            # Plot the progress
-            print ("%d [D loss: %.2f, acc.: %.2f%%] [Q loss: %.2f] [G loss: %.2f]" % (epoch, d_loss[0], 100*d_loss[1], g_loss[1], g_loss[2]))
+                # Plot the progress
+                print("%d [D loss: %.2f, acc.: %.2f%%] [Q loss: %.2f] [G loss: %.2f]" % (
+                    epoch, d_loss[0], 100 * d_loss[1], g_loss[1], g_loss[2]))
+                logger.writerow([epoch, d_loss[0], 100 * d_loss[1], g_loss[1], g_loss[2]])
+                fout.flush()
 
-            # If at save interval => save generated image samples
-            if epoch % sample_interval == 0:
-                self.sample_images(epoch)
+                # If at save interval => save generated image samples
+                if epoch % sample_interval == 0:
+                    self.sample_interval(epoch)
+
+                if self.backup and epoch % self.backup_interval == 0:
+                    self.save_model(ext='_e' + str(epoch))
+
+            self.save_model()
 
     def sample_images(self, epoch):
         r, c = 10, 10
@@ -203,29 +237,27 @@ class INFOGAN():
         fig, axs = plt.subplots(r, c)
         for i in range(c):
             sampled_noise, _ = self.sample_generator_input(c)
-            label = to_categorical(np.full(fill_value=i, shape=(r,1)), num_classes=self.num_classes)
+            label = to_categorical(np.full(fill_value=i, shape=(r, 1)), num_classes=self.num_classes)
             gen_input = np.concatenate((sampled_noise, label), axis=1)
             gen_imgs = self.generator.predict(gen_input)
             gen_imgs = 0.5 * gen_imgs + 0.5
             for j in range(r):
-                axs[j,i].imshow(gen_imgs[j,:,:,0], cmap='gray')
-                axs[j,i].axis('off')
-        fig.savefig("images/%d.png" % epoch)
+                axs[j, i].imshow(gen_imgs[j, :, :, 0], cmap='gray')
+                axs[j, i].axis('off')
+        fig.savefig(join(self.output_folder, "InfoGAN_%d.png" % epoch))
         plt.close()
 
-    def save_model(self):
+    def load_model(self):
 
-        def save(model, model_name):
-            model_path = "saved_model/%s.json" % model_name
-            weights_path = "saved_model/%s_weights.hdf5" % model_name
-            options = {"file_arch": model_path,
-                        "file_weight": weights_path}
-            json_string = model.to_json()
-            open(options['file_arch'], 'w').write(json_string)
-            model.save_weights(options['file_weight'])
+        self.discriminator.load_weights(join(self.load_folder, "discriminator"))
 
-        save(self.generator, "generator")
-        save(self.discriminator, "discriminator")
+        self.generator.load_weights(join(self.load_folder, "generator"))
+        self.auxilliary.load_weights(join(self.load_folder, "auxilliary"))
+
+    def save_model(self, ext=''):
+        self.generator.save_weights(join(self.save_folder, "generator" + ext))
+        self.auxilliary.save_weights(join(self.save_folder, "auxilliary" + ext))
+        self.discriminator.save_weights(join(self.save_folder, "discriminator" + ext))
 
 
 if __name__ == '__main__':

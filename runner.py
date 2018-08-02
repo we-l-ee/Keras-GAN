@@ -18,14 +18,18 @@ def getImageFiles(input_folder, exts = (".jpg", ".gif", ".png", ".tga", ".tif"),
     return files
 
 def load_imagefiles(paths, shape=(100,100)):
-    data = []
+    X, y = [], []
     for path in paths:
         im = cv2.resize(cv2.imread(path), shape)
         # print(im.shape)
-        data.append(im)
+        X.append(im)
+        y.append(encoder(path))
 
-    return np.array(data)
+    return np.array(X), np.array(y)
 
+
+def encoder(file):
+    return 0 if splitext(basename(file))[0][-2:] == 'OK' else 1
 
 def splitByClass(files):
     fault, ok = [], []
@@ -64,10 +68,10 @@ def main():
 
     files = train_on[config.get("General", "train_on")](config)
 
-    X = load_imagefiles(files,
+    data = load_imagefiles(files,
                         (config.getint("Model","rows"), config.getint("Model","cols")))
 
-    gan.train(X, epochs=config.getint("Train","epochs"), batch_size=config.getint("Train","batch_size"),
+    gan.train(data, epochs=config.getint("Train","epochs"), batch_size=config.getint("Train","batch_size"),
               sample_interval=config.getint("Train","sample_interval"))
 
 if __name__ == '__main__':

@@ -25,6 +25,12 @@ from keras.models import load_model
 
 class WGAN():
     def __init__(self, config=None):
+
+        '''
+        Must be input shape must be divisible by 4, if not giving as required it will make it so.
+        :param config:
+        '''
+
         if config is not None:
             self.img_rows = config.getint("Model", "rows")
             self.img_cols = config.getint("Model", "cols")
@@ -36,6 +42,7 @@ class WGAN():
             self.last_epoch = config.getint('Model', "last_epoch")
             self.backup = config.getboolean("Model", 'backup')
             self.backup_interval = config.getint("Model", 'backup_interval')
+            lr = config.getfloat("Model","lr")
         else:
             self.img_rows = 28
             self.img_cols = 28
@@ -44,6 +51,8 @@ class WGAN():
             self.save_path = "model"
             self.load = False
             self.latent_dim = 100
+            lr = 0.00005
+            self.last_epoch = 0
 
         self.save_folder = join(self.output_folder, "models")
         self.log_folder = join(self.output_folder, "logs")
@@ -53,13 +62,13 @@ class WGAN():
         makedirs(self.save_folder, exist_ok=True)
 
         self.img_dim = self.img_rows * self.img_cols * self.channels
-        self.img_shape = (self.img_rows, self.img_cols, self.channels)
+        self.img_shape = (self.img_rows//4*4, self.img_cols//4*4, self.channels)
 
         # Following parameter and optimizer set as recommended in paper
         self.n_critic = 5
         self.clip_value = 0.01
 
-        optimizer = RMSprop(lr=0.00005)
+        optimizer = RMSprop(lr=lr)
         # Build and compile the critic
         self.critic = self.build_critic()
         self.critic.compile(loss=self.wasserstein_loss,
@@ -73,6 +82,7 @@ class WGAN():
 
         # The generator takes noise as input and generated imgs
         z = Input(shape=(self.latent_dim,))
+
         img = self.generator(z)
 
         # For the combined model we will only train the generator
@@ -94,8 +104,8 @@ class WGAN():
 
         model = Sequential()
 
-        model.add(Dense(128 * 7 * 7, activation="relu", input_dim=self.latent_dim))
-        model.add(Reshape((7, 7, 128)))
+        model.add(Dense(128 * self.img_rows//4 * self.img_cols//4, activation="relu", input_dim=self.latent_dim))
+        model.add(Reshape((self.img_rows//4, self.img_cols//4, 128)))
         model.add(UpSampling2D())
         model.add(Conv2D(128, kernel_size=4, padding="same"))
         model.add(BatchNormalization(momentum=0.8))
@@ -107,9 +117,12 @@ class WGAN():
         model.add(Conv2D(self.channels, kernel_size=4, padding="same"))
 
         model.add(Activation("tanh")) # original
-        # should it not be this way?
-        model.add(Dense(self.img_dim))  # added
-        model.add(Activation("tanh")) # added
+
+        # # Added for dynamic dimensions
+        # model.add(Flatten())
+        # model.add(Dense(self.img_dim))  # added
+        # model.add(Activation("tanh")) # added
+        # model.add(Reshape(self.img_shape))
 
         model.summary()
 
@@ -148,7 +161,9 @@ class WGAN():
 
         return Model(img, validity)
 
-    def train(self, X, epochs, batch_size=128, sample_interval=50, **kwargs):
+    def train(self, data, epochs, batch_size=128, sample_interval=50):
+        X, _ = data
+
         import csv
         with open(self.log_file, 'w') as fout:
             logger = csv.writer(fout, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
@@ -156,13 +171,12 @@ class WGAN():
 
             # Rescale -1 to 1
             X = (X.astype(np.float32) - 127.5) / 127.5
-            X = np.expand_dims(X, axis=3)
 
             # Adversarial ground truths
             valid = -np.ones((batch_size, 1))
             fake = np.ones((batch_size, 1))
 
-            for epoch in range(epochs):
+            for epoch in range(self.last_epoch, epochs+self.last_epoch):
 
                 for _ in range(self.n_critic):
 
@@ -179,7 +193,7 @@ class WGAN():
                     noise = np.random.normal(0, 1, (batch_size, self.latent_dim))
 
                     # Generate a batch of new images
-                    gen_imgs = self.generator.predict(noise).reshape((batch_size,) + self.img_shape)
+                    gen_imgs = self.generator.predict(noise)
 
                     # Train the critic
                     d_loss_real = self.critic.train_on_batch(imgs, valid)
@@ -210,7 +224,7 @@ class WGAN():
                 if self.backup and epoch % self.backup_interval == 0:
                     self.save_model(ext='_e' + str(epoch))
 
-            save_model()
+            self.save_model()
 
     def sample_images(self, epoch):
         r, c = 5, 5
@@ -220,8 +234,6 @@ class WGAN():
         # Rescale images 0 - 1
         gen_imgs = 0.5 * gen_imgs + 1
 
-        gen_imgs = gen_imgs.reshape((r*c,)+self.img_shape)
-
         fig, axs = plt.subplots(r, c)
         cnt = 0
         for i in range(r):
@@ -229,7 +241,7 @@ class WGAN():
                 axs[i, j].imshow(gen_imgs[cnt, :, :, 0], cmap='gray')
                 axs[i, j].axis('off')
                 cnt += 1
-        fig.savefig(join(self.output_folder, "DUALGAN_%d.png" % epoch))
+        fig.savefig(join(self.output_folder, "WGAN_%d.png" % epoch))
         plt.close()
 
 

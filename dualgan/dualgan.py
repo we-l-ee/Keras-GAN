@@ -41,6 +41,7 @@ class DUALGAN():
             self.output_folder = "images"
             self.save_path = "model"
             self.load=False
+            self.last_epoch = 0
 
         self.log_folder = join(self.output_folder, "logs")
         self.save_folder = join(self.output_folder, "models")
@@ -162,7 +163,8 @@ class DUALGAN():
         return K.mean(y_true * y_pred)
 
     # 12 Generator? for each 30 degree?
-    def train(self, X, epochs, batch_size=128, sample_interval=50, save=True):
+    def train(self, data, epochs, batch_size=128, sample_interval=50):
+        X, _ = data
 
         import csv
         with open(self.log_file, 'w') as fout:
