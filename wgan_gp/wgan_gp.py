@@ -1,4 +1,3 @@
-
 # Large amount of credit goes to:
 # https://github.com/keras-team/keras-contrib/blob/master/examples/improved_wgan.py
 # which I've used as a reference for this implementation
@@ -29,23 +28,34 @@ from os import makedirs
 from keras.models import save_model
 from keras.models import load_model
 
+
 class RandomWeightedAverage(_Merge):
     """Provides a (random) weighted average between real and generated image samples"""
+
     def _merge_function(self, inputs):
         alpha = K.random_uniform((32, 1, 1, 1))
         return (alpha * inputs[0]) + ((1 - alpha) * inputs[1])
 
+
 class WGANGP():
     def __init__(self, config=None):
+        '''
+        Must be input shape must be divisible by 4, if not giving as required it will make it so.
+        :param config:
+        '''
+
         if config is not None:
             self.img_rows = config.getint("Model", "rows")
             self.img_cols = config.getint("Model", "cols")
             self.channels = config.getint("Model", "channels")
             self.output_folder = config.get("Model", "output_folder")
-            self.save_folder = join(self.output_folder, "models")
             self.load = config.getboolean("Model", "load")
-            self.load_folder = config.get("Model", "load_folder")
             self.latent_dim = config.getint("Model", "latent_dim")
+            self.load_folder = join(config.get("Model", "load_folder"), "models")
+            self.last_epoch = config.getint('Model', "last_epoch")
+            self.backup = config.getboolean("Model", 'backup')
+            self.backup_interval = config.getint("Model", 'backup_interval')
+            lr = config.getfloat("Model", "lr")
         else:
             self.img_rows = 28
             self.img_cols = 28
@@ -54,27 +64,33 @@ class WGANGP():
             self.save_path = "model"
             self.load = False
             self.latent_dim = 100
+            lr = 0.00005
+            self.last_epoch = 0
 
-        makedirs(self.output_folder, exist_ok=True)
+        self.save_folder = join(self.output_folder, "models")
         self.log_folder = join(self.output_folder, "logs")
-        makedirs(self.log_folder, exist_ok=True)
         self.log_file = join(self.log_folder, "logs.csv")
 
+        makedirs(self.log_folder, exist_ok=True)
+        makedirs(self.save_folder, exist_ok=True)
+
         self.img_dim = self.img_rows * self.img_cols * self.channels
-        self.img_shape = (self.img_rows, self.img_cols, self.channels)
+        self.img_shape = (self.img_rows // 4 * 4, self.img_cols // 4 * 4, self.channels)
 
         # Following parameter and optimizer set as recommended in paper
         self.n_critic = 5
-        optimizer = RMSprop(lr=0.00005)
+        optimizer = RMSprop(lr=lr)
 
         # Build the generator and critic
         self.generator = self.build_generator()
         self.critic = self.build_critic()
 
-        #-------------------------------
+        if self.load: self.load_model()
+
+        # -------------------------------
         # Construct Computational Graph
         #       for the Critic
-        #-------------------------------
+        # -------------------------------
 
         # Freeze generator's layers while training critic
         self.generator.trainable = False
@@ -99,20 +115,20 @@ class WGANGP():
         # Use Python partial to provide loss function with additional
         # 'averaged_samples' argument
         partial_gp_loss = partial(self.gradient_penalty_loss,
-                          averaged_samples=interpolated_img)
-        partial_gp_loss.__name__ = 'gradient_penalty' # Keras requires function names
+                                  averaged_samples=interpolated_img)
+        partial_gp_loss.__name__ = 'gradient_penalty'  # Keras requires function names
 
         self.critic_model = Model(inputs=[real_img, z_disc],
-                            outputs=[valid, fake, validity_interpolated])
+                                  outputs=[valid, fake, validity_interpolated])
         self.critic_model.compile(loss=[self.wasserstein_loss,
-                                              self.wasserstein_loss,
-                                              partial_gp_loss],
-                                        optimizer=optimizer,
-                                        loss_weights=[1, 1, 10])
-        #-------------------------------
+                                        self.wasserstein_loss,
+                                        partial_gp_loss],
+                                  optimizer=optimizer,
+                                  loss_weights=[1, 1, 10])
+        # -------------------------------
         # Construct Computational Graph
         #         for Generator
-        #-------------------------------
+        # -------------------------------
 
         # For the generator we freeze the critic's layers
         self.critic.trainable = False
@@ -127,7 +143,6 @@ class WGANGP():
         # Defines generator model
         self.generator_model = Model(z_gen, valid)
         self.generator_model.compile(loss=self.wasserstein_loss, optimizer=optimizer)
-
 
     def gradient_penalty_loss(self, y_true, y_pred, averaged_samples):
         """
@@ -146,7 +161,6 @@ class WGANGP():
         # return the mean as loss over all the batch samples
         return K.mean(gradient_penalty)
 
-
     def wasserstein_loss(self, y_true, y_pred):
         return K.mean(y_true * y_pred)
 
@@ -154,8 +168,8 @@ class WGANGP():
 
         model = Sequential()
 
-        model.add(Dense(128 * 7 * 7, activation="relu", input_dim=self.latent_dim))
-        model.add(Reshape((7, 7, 128)))
+        model.add(Dense(128 * self.img_rows // 4 * self.img_cols // 4, activation="relu", input_dim=self.latent_dim))
+        model.add(Reshape((self.img_rows // 4, self.img_cols // 4, 128)))
         model.add(UpSampling2D())
         model.add(Conv2D(128, kernel_size=4, padding="same"))
         model.add(BatchNormalization(momentum=0.8))
@@ -182,7 +196,7 @@ class WGANGP():
         model.add(LeakyReLU(alpha=0.2))
         model.add(Dropout(0.25))
         model.add(Conv2D(32, kernel_size=3, strides=2, padding="same"))
-        model.add(ZeroPadding2D(padding=((0,1),(0,1))))
+        model.add(ZeroPadding2D(padding=((0, 1), (0, 1))))
         model.add(BatchNormalization(momentum=0.8))
         model.add(LeakyReLU(alpha=0.2))
         model.add(Dropout(0.25))
@@ -204,48 +218,56 @@ class WGANGP():
 
         return Model(img, validity)
 
-    def train(self, epochs, batch_size, sample_interval=50):
+    def train(self, data, epochs, batch_size, sample_interval=50):
 
         # Load the dataset
-        (X_train, _), (_, _) = mnist.load_data()
+        X, _ = data
+        import csv
+        with open(self.log_file, 'w') as fout:
+            logger = csv.writer(fout, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
+            logger.writerow(["Epoch", "D loss", "G loss"])
 
-        # Rescale -1 to 1
-        X_train = (X_train.astype(np.float32) - 127.5) / 127.5
-        X_train = np.expand_dims(X_train, axis=3)
+            # Rescale -1 to 1
+            X = (X.astype(np.float32) - 127.5) / 127.5
+            X = np.expand_dims(X, axis=3)
 
-        # Adversarial ground truths
-        valid = -np.ones((batch_size, 1))
-        fake =  np.ones((batch_size, 1))
-        dummy = np.zeros((batch_size, 1)) # Dummy gt for gradient penalty
-        for epoch in range(epochs):
+            # Adversarial ground truths
+            valid = -np.ones((batch_size, 1))
+            fake = np.ones((batch_size, 1))
+            dummy = np.zeros((batch_size, 1))  # Dummy gt for gradient penalty
+            for epoch in range(self.last_epoch, epochs+self.last_epoch):
 
-            for _ in range(self.n_critic):
+                for _ in range(self.n_critic):
+                    # ---------------------
+                    #  Train Discriminator
+                    # ---------------------
+
+                    # Select a random batch of images
+                    idx = np.random.randint(0, X.shape[0], batch_size)
+                    imgs = X[idx]
+                    # Sample generator input
+                    noise = np.random.normal(0, 1, (batch_size, self.latent_dim))
+                    # Train the critic
+                    d_loss = self.critic_model.train_on_batch([imgs, noise],
+                                                              [valid, fake, dummy])
 
                 # ---------------------
-                #  Train Discriminator
+                #  Train Generator
                 # ---------------------
 
-                # Select a random batch of images
-                idx = np.random.randint(0, X_train.shape[0], batch_size)
-                imgs = X_train[idx]
-                # Sample generator input
-                noise = np.random.normal(0, 1, (batch_size, self.latent_dim))
-                # Train the critic
-                d_loss = self.critic_model.train_on_batch([imgs, noise],
-                                                                [valid, fake, dummy])
+                g_loss = self.generator_model.train_on_batch(noise, valid)
 
-            # ---------------------
-            #  Train Generator
-            # ---------------------
+                # Plot the progress
+                print("%d [D loss: %f] [G loss: %f]" % (epoch, d_loss[0], g_loss))
 
-            g_loss = self.generator_model.train_on_batch(noise, valid)
+                # If at save interval => save generated image samples
+                if epoch % sample_interval == 0:
+                    self.sample_images(epoch)
 
-            # Plot the progress
-            print ("%d [D loss: %f] [G loss: %f]" % (epoch, d_loss[0], g_loss))
+                if self.backup and epoch % self.backup_interval == 0:
+                    self.save_model(ext='_e' + str(epoch))
 
-            # If at save interval => save generated image samples
-            if epoch % sample_interval == 0:
-                self.sample_images(epoch)
+            self.save_model()
 
     def sample_images(self, epoch):
         r, c = 5, 5
@@ -259,12 +281,23 @@ class WGANGP():
         cnt = 0
         for i in range(r):
             for j in range(c):
-                axs[i,j].imshow(gen_imgs[cnt, :,:,0], cmap='gray')
-                axs[i,j].axis('off')
+                axs[i, j].imshow(gen_imgs[cnt, :, :, 0], cmap='gray')
+                axs[i, j].axis('off')
                 cnt += 1
-        fig.savefig("images/mnist_%d.png" % epoch)
+        fig.savefig(join(self.output_folder, "WGAN-GP_%d.png" % epoch))
         plt.close()
 
+    def load_model(self):
+
+        self.critic.load_weights(join(self.load_folder,"critic"))
+
+        self.generator.load_weights(join(self.load_folder,"generator"))
+
+
+    def save_model(self, ext=''):
+        self.critic.save_weights(join(self.save_folder,"critic"+ext))
+
+        self.generator.save_weights(join(self.save_folder,"generator"+ext))
 
 if __name__ == '__main__':
     wgan = WGANGP()
