@@ -226,6 +226,13 @@ class WGAN():
 
             self.save_model()
 
+    def generate(self, n):
+        noise = np.random.normal(0, 1, (n, self.latent_dim))
+
+        # Generate a batch of new images
+        return self.generator.predict(noise)
+
+
     def sample_images(self, epoch):
         r, c = 5, 5
         noise = np.random.normal(0, 1, (r * c, self.latent_dim))

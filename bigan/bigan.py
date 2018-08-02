@@ -212,6 +212,12 @@ class BIGAN():
 
             self.save_model()
 
+
+    def generate(self, n):
+        z = np.random.normal(size=(batch_size, self.latent_dim))
+        imgs_ = self.generator.predict(z)
+
+
     def sample_interval(self, epoch):
         r, c = 5, 5
         z = np.random.normal(size=(25, self.latent_dim))
