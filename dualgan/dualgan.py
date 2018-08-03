@@ -247,16 +247,18 @@ class DUALGAN():
 
     def feed(self, img):
         img = (img.astype(np.float32) - 127.5) / 127.5
-        img = img + (np.random.rand(img.shape)-0.5)
-        img[img<0] = 0; img[img>1]=1
-        self.__feed = self.G_AB.predict(img.reshape((1,)+self.img_shape))
+        img = img.reshape(self.img_dim)
+        # img = img + (np.random.rand(self.img_dim)-0.5)
+        # img[img<0] = 0; img[img>1]=1
+        # img = img.reshape(1, self.img_dim)
+        self.__feed = self.G_AB.predict(np.array([img]))
 
     def generate(self, n):
 
         gen_imgs=[]
         for _ in range(n):
-            self.__feed = self.G_AB(self.__feed.reshape((1,)+self.img_shape))
-            gen_imgs.append(self.__feed.copy())
+            self.__feed = self.G_AB.predict(self.__feed)
+            gen_imgs.append(self.__feed.copy().reshape(self.img_shape))
         return gen_imgs
 
     def save_imgs(self, epoch, X_A, X_B):

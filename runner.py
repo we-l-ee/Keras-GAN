@@ -27,6 +27,8 @@ def load_imagefiles(paths, shape=(100,100)):
 
     return np.array(X), np.array(y)
 
+def imread(path, shape):
+    return cv2.resize(cv2.imread(path), shape)
 
 def encoder(file):
     return 0 if splitext(basename(file))[0][-2:] == 'OK' else 1
@@ -64,6 +66,8 @@ def train(config, gan):
               sample_interval=config.getint("Train","sample_interval"))
 import datetime
 
+from os import makedirs
+
 def imwrite(path, im):
     im = im*255
     im = im.astype(np.uint8)
@@ -72,11 +76,14 @@ def imwrite(path, im):
 def generate(config, gan):
     feed_ones = ["DUALGAN", 'Pix2Pix']
     if config.get("General", "model") in feed_ones:
-        gan.feed(config.get("General", "feed"))
+        img = imread(config.get("generate", "feed"), (config.getint("Model","rows"), config.getint("Model","cols")))
+        gan.feed(img)
+
     imgs = gan.generate(config.getint("generate","nums"))
     output_folder = config.get('generate','output_folder')
+    makedirs(output_folder, exist_ok=True)
     for i, img in enumerate(imgs):
-        imwrite(join(output_folder,str(datetime.datetime.now())+str(i)),img)
+        imwrite(join(output_folder, str(datetime.datetime.now())+str(i)+".jpg"),img)
 
 def main():
     config = configparser.ConfigParser()
