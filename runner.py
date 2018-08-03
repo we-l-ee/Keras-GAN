@@ -17,18 +17,21 @@ def getImageFiles(input_folder, exts = (".jpg", ".gif", ".png", ".tga", ".tif"),
         files.extend(glob.glob(join(input_folder,'*%s' % ext), recursive=recursive))
     return files
 
-def load_imagefiles(paths, shape=(100,100)):
+def load_imagefiles(paths, shape, gray):
     X, y = [], []
+    f = cv2.IMREAD_GRAYSCALE if gray else cv2.IMREAD_COLOR
+
     for path in paths:
-        im = cv2.resize(cv2.imread(path), shape)
+        im = cv2.resize(cv2.imread(path, flags=f), shape)
         # print(im.shape)
         X.append(im)
         y.append(encoder(path))
 
     return np.array(X), np.array(y)
 
-def imread(path, shape):
-    return cv2.resize(cv2.imread(path), shape)
+def imread(path, shape, gray):
+    f = cv2.IMREAD_GRAYSCALE if gray else cv2.IMREAD_COLOR
+    return cv2.resize(cv2.imread(path,flags=f), shape)
 
 def encoder(file):
     return 0 if splitext(basename(file))[0][-2:] == 'OK' else 1
@@ -58,9 +61,8 @@ def train(config, gan):
     train_on = {"OK": get_files_OK, "FAULT": get_files_FAULT, "all": get_files}
 
     files = train_on[config.get("General", "train_on")](config)
-
-    data = load_imagefiles(files,
-                        (config.getint("Model","rows"), config.getint("Model","cols")))
+    shape = (config.getint("Model","rows"), config.getint("Model","cols"))
+    data = load_imagefiles(files, shape, config.getint("Model",'channels')==1)
 
     gan.train(data, epochs=config.getint("Train","epochs"), batch_size=config.getint("Train","batch_size"),
               sample_interval=config.getint("Train","sample_interval"))
@@ -75,8 +77,9 @@ def imwrite(path, im):
 
 def generate(config, gan):
     feed_ones = ["DUALGAN", 'Pix2Pix']
+    gray = config.getint("Model",'channels')==1
     if config.get("General", "model") in feed_ones:
-        img = imread(config.get("generate", "feed"), (config.getint("Model","rows"), config.getint("Model","cols")))
+        img = imread(config.get("generate", "feed"), (config.getint("Model","rows"), config.getint("Model","cols")), gray)
         gan.feed(img)
 
     imgs = gan.generate(config.getint("generate","nums"))

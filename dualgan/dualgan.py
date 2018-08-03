@@ -189,7 +189,7 @@ class DUALGAN():
             valid = -np.ones((batch_size, 1))
             fake = np.ones((batch_size, 1))
 
-            for epoch in range(self.last_epoch, epochs+self.last_epoch):
+            for epoch in range(self.last_epoch+1, epochs+self.last_epoch):
 
                 # Train the discriminator for n_critic iterations
                 for _ in range(n_critic):
