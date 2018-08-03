@@ -67,7 +67,7 @@ def train(config, gan):
     gan.train(data, epochs=config.getint("Train","epochs"), batch_size=config.getint("Train","batch_size"),
               sample_interval=config.getint("Train","sample_interval"))
 import datetime
-
+from time import time
 from os import makedirs
 
 def imwrite(path, im):
@@ -86,7 +86,7 @@ def generate(config, gan):
     output_folder = config.get('generate','output_folder')
     makedirs(output_folder, exist_ok=True)
     for i, img in enumerate(imgs):
-        imwrite(join(output_folder, str(datetime.datetime.now())+str(i)+".jpg"),img)
+        imwrite(join(output_folder, str(time())+str(i)+".jpg"),img)
 
 def main():
     config = configparser.ConfigParser()

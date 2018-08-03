@@ -44,6 +44,7 @@ class Pix2Pix():
             self.save_path = "model"
             self.load=False
             self.last_epoch = 0
+            self.backup = False
 
         self.save_folder = join(self.output_folder, "models")
         self.log_folder = join(self.output_folder, "logs")

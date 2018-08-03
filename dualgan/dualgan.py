@@ -189,7 +189,7 @@ class DUALGAN():
             valid = -np.ones((batch_size, 1))
             fake = np.ones((batch_size, 1))
 
-            for epoch in range(self.last_epoch+1, epochs+self.last_epoch):
+            for epoch in range(self.last_epoch+1, epochs+self.last_epoch+1):
 
                 # Train the discriminator for n_critic iterations
                 for _ in range(n_critic):
@@ -248,16 +248,18 @@ class DUALGAN():
     def feed(self, img):
         img = (img.astype(np.float32) - 127.5) / 127.5
         img = img.reshape(self.img_dim)
-        # img = img + (np.random.rand(self.img_dim)-0.5)
-        # img[img<0] = 0; img[img>1]=1
-        # img = img.reshape(1, self.img_dim)
-        self.__feed = self.G_AB.predict(np.array([img]))
+        img = img + (np.random.rand(self.img_dim)-0.5)
+        img[img<0] = 0; img[img>1]=1
+        img = img.reshape(1, self.img_dim)
+        self.__feed = self.G_AB.predict(img)
 
     def generate(self, n):
 
         gen_imgs=[]
         for _ in range(n):
-            self.__feed = self.G_AB.predict(self.__feed)
+            self.__feed = (np.random.rand(self.img_dim) - 0.5) * 2
+            # img = img.reshape(1, self.img_dim)
+            self.__feed = self.G_AB.predict(self.__feed.reshape(1, self.img_dim))
             gen_imgs.append(self.__feed.copy().reshape(self.img_shape))
         return gen_imgs
 
