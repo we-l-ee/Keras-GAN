@@ -40,6 +40,7 @@ class RandomWeightedAverage(_Merge):
 class WGANGP():
     def __init__(self, config=None):
         '''
+        For some reason batch size must be 32.
         Must be input shape must be divisible by 4, if not giving as required it will make it so.
         :param config:
         '''
@@ -52,7 +53,7 @@ class WGANGP():
             self.load = config.getboolean("Model", "load")
             self.latent_dim = config.getint("Model", "latent_dim")
             self.load_folder = join(config.get("Model", "load_folder"), "models")
-            self.last_epoch = config.getint('Model', "last_epoch")
+            self.last_epoch = config.getint('Model', "last_epoch") + 1
             self.backup = config.getboolean("Model", 'backup')
             self.backup_interval = config.getint("Model", 'backup_interval')
             lr = config.getfloat("Model", "lr")
@@ -65,7 +66,7 @@ class WGANGP():
             self.load = False
             self.latent_dim = 100
             lr = 0.00005
-            self.last_epoch = 0
+            self.last_epoch = 1
 
         self.save_folder = join(self.output_folder, "models")
         self.log_folder = join(self.output_folder, "logs")
@@ -74,8 +75,10 @@ class WGANGP():
         makedirs(self.log_folder, exist_ok=True)
         makedirs(self.save_folder, exist_ok=True)
 
+        self.img_rows = self.img_rows - (self.img_rows % 4)
+        self.img_cols = self.img_cols - (self.img_cols % 4)
         self.img_dim = self.img_rows * self.img_cols * self.channels
-        self.img_shape = (self.img_rows // 4 * 4, self.img_cols // 4 * 4, self.channels)
+        self.img_shape = (self.img_rows, self.img_cols, self.channels)
 
         # Following parameter and optimizer set as recommended in paper
         self.n_critic = 5
@@ -99,7 +102,7 @@ class WGANGP():
         real_img = Input(shape=self.img_shape)
 
         # Noise input
-        z_disc = Input(shape=(100,))
+        z_disc = Input(shape=(self.latent_dim,))
         # Generate image based of noise (fake sample)
         fake_img = self.generator(z_disc)
 
@@ -135,7 +138,7 @@ class WGANGP():
         self.generator.trainable = True
 
         # Sampled noise for input to generator
-        z_gen = Input(shape=(100,))
+        z_gen = Input(shape=(self.latent_dim,))
         # Generate images based of noise
         img = self.generator(z_gen)
         # Discriminator determines validity
@@ -223,19 +226,18 @@ class WGANGP():
         # Load the dataset
         X, _ = data
         import csv
-        with open(self.log_file, 'w') as fout:
+        with open(self.log_file, 'a') as fout:
             logger = csv.writer(fout, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
-            logger.writerow(["Epoch", "D loss", "G loss"])
+            if self.last_epoch != 1: logger.writerow(["Epoch", "D loss", "G loss"])
 
             # Rescale -1 to 1
             X = (X.astype(np.float32) - 127.5) / 127.5
-            X = np.expand_dims(X, axis=3)
 
             # Adversarial ground truths
             valid = -np.ones((batch_size, 1))
             fake = np.ones((batch_size, 1))
             dummy = np.zeros((batch_size, 1))  # Dummy gt for gradient penalty
-            for epoch in range(self.last_epoch, epochs+self.last_epoch):
+            for epoch in range(self.last_epoch, epochs + self.last_epoch):
 
                 for _ in range(self.n_critic):
                     # ---------------------
@@ -247,6 +249,7 @@ class WGANGP():
                     imgs = X[idx]
                     # Sample generator input
                     noise = np.random.normal(0, 1, (batch_size, self.latent_dim))
+
                     # Train the critic
                     d_loss = self.critic_model.train_on_batch([imgs, noise],
                                                               [valid, fake, dummy])
@@ -259,6 +262,8 @@ class WGANGP():
 
                 # Plot the progress
                 print("%d [D loss: %f] [G loss: %f]" % (epoch, d_loss[0], g_loss))
+                logger.writerow([epoch, d_loss[0], g_loss])
+                fout.flush()
 
                 # If at save interval => save generated image samples
                 if epoch % sample_interval == 0:
@@ -295,16 +300,15 @@ class WGANGP():
 
     def load_model(self):
 
-        self.critic.load_weights(join(self.load_folder,"critic"))
+        self.critic.load_weights(join(self.load_folder, "critic"))
 
-        self.generator.load_weights(join(self.load_folder,"generator"))
-
+        self.generator.load_weights(join(self.load_folder, "generator"))
 
     def save_model(self, ext=''):
-        self.critic.save_weights(join(self.save_folder,"critic"+ext))
+        self.critic.save_weights(join(self.save_folder, "critic" + ext))
 
-        self.generator.save_weights(join(self.save_folder,"generator"+ext))
+        self.generator.save_weights(join(self.save_folder, "generator" + ext))
 
-if __name__ == '__main__':
-    wgan = WGANGP()
-    wgan.train(epochs=30000, batch_size=32, sample_interval=100)
+# if __name__ == '__main__':
+#     wgan = WGANGP()
+#     wgan.train(epochs=30000, batch_size=32, sample_interval=100)

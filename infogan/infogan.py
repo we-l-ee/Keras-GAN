@@ -17,7 +17,7 @@ import numpy as np
 from os.path import join
 from os import makedirs
 
-
+# if there is shape error set the dimension of latent dim to given error dim.
 class INFOGAN():
     def __init__(self, config=None):
         if config is not None:
@@ -26,9 +26,9 @@ class INFOGAN():
             self.channels = config.getint("Model", "channels")
             self.output_folder = config.get("Model", "output_folder")
             self.load = config.getboolean("Model", "load")
-            self.load_folder = config.get("Model", "load_folder")
+            self.load_folder = join(config.get("Model", "load_folder"), "models")
             self.latent_dim = config.getint("Model", "latent_dim")
-            self.last_epoch = config.getint('Model', "last_epoch")
+            self.last_epoch = config.getint('Model', "last_epoch")+1
             self.backup = config.getboolean("Model", 'backup')
             self.backup_interval = config.getint("Model", 'backup_interval')
             self.num_classes = config.getint("Model", 'num_classes')
@@ -41,7 +41,7 @@ class INFOGAN():
             self.save_path = "model"
             self.load = False
             self.latent_dim = 72
-            self.last_epoch = 0
+            self.last_epoch = 1
             self.num_classes = 10
 
         self.save_folder = join(self.output_folder, "models")
@@ -49,7 +49,7 @@ class INFOGAN():
         self.log_file = join(self.log_folder, "logs.csv")
         makedirs(self.log_folder, exist_ok=True)
         makedirs(self.save_folder, exist_ok=True)
-
+        self.img_rows = self.img_rows // 4 * 4; self.img_cols = self.img_cols // 4 * 4
         self.img_dim = self.img_rows * self.img_cols * self.channels
         self.img_shape = (self.img_rows, self.img_cols, self.channels)
 
@@ -58,6 +58,7 @@ class INFOGAN():
 
         # Build and the discriminator and recognition network
         self.discriminator, self.auxilliary = self.build_disk_and_q_net()
+
 
         # Build the generator
         self.generator = self.build_generator()
@@ -95,8 +96,8 @@ class INFOGAN():
 
         model = Sequential()
 
-        model.add(Dense(128 * 7 * 7, activation="relu", input_dim=self.latent_dim))
-        model.add(Reshape((7, 7, 128)))
+        model.add(Dense(128 * self.img_rows // 4 * self.img_cols // 4, activation="relu", input_dim=self.latent_dim))
+        model.add(Reshape((self.img_rows // 4, self.img_cols // 4, 128)))
         model.add(BatchNormalization(momentum=0.8))
         model.add(UpSampling2D())
         model.add(Conv2D(128, kernel_size=3, padding="same"))
@@ -109,10 +110,11 @@ class INFOGAN():
         model.add(Conv2D(self.channels, kernel_size=3, padding='same'))
         model.add(Activation("tanh"))
 
+        model.summary()
+
         gen_input = Input(shape=(self.latent_dim,))
         img = model(gen_input)
 
-        model.summary()
 
         return Model(gen_input, img)
 
@@ -139,6 +141,8 @@ class INFOGAN():
         model.add(Dropout(0.25))
         model.add(BatchNormalization(momentum=0.8))
         model.add(Flatten())
+
+        model.summary()
 
         img_embedding = model(img)
 
@@ -175,16 +179,15 @@ class INFOGAN():
 
         # Rescale -1 to 1
         X = (X.astype(np.float32) - 127.5) / 127.5
-        X = np.expand_dims(X, axis=3)
         y_train = y_train.reshape(-1, 1)
 
         # Adversarial ground truths
         valid = np.ones((batch_size, 1))
         fake = np.zeros((batch_size, 1))
         import csv
-        with open(self.log_file, 'w') as fout:
+        with open(self.log_file, 'a') as fout:
             logger = csv.writer(fout, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
-            logger.writerow(["Epoch", "D loss", "acc", "Q loss", "G loss"])
+            if self.last_epoch != 1: logger.writerow(["Epoch", "D loss", "acc", "Q loss", "G loss"])
 
             for epoch in range(self.last_epoch, epochs + self.last_epoch):
 
@@ -231,12 +234,13 @@ class INFOGAN():
 
             self.save_model()
 
-    def sample_images(self, epoch):
+    def sample_interval(self, epoch):
         r, c = 10, 10
 
         fig, axs = plt.subplots(r, c)
         for i in range(c):
             sampled_noise, _ = self.sample_generator_input(c)
+
             label = to_categorical(np.full(fill_value=i, shape=(r, 1)), num_classes=self.num_classes)
             gen_input = np.concatenate((sampled_noise, label), axis=1)
             gen_imgs = self.generator.predict(gen_input)

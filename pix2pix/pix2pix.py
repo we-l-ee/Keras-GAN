@@ -21,9 +21,16 @@ from os import makedirs
 
 from keras.models import save_model
 from keras.models import load_model
+from math import ceil
+import cv2
+
 
 class Pix2Pix():
     def __init__(self, config=None):
+        '''
+
+        :param config:
+        '''
         if config is not None:
             self.img_rows = config.getint("Model", "rows")
             self.img_cols = config.getint("Model", "cols")
@@ -31,7 +38,7 @@ class Pix2Pix():
             self.output_folder = config.get("Model", "output_folder")
             self.load = config.getboolean("Model", "load")
             self.load_folder = join(config.get("Model", "load_folder"), "models")
-            self.last_epoch = config.getint('Model', "last_epoch")
+            self.last_epoch = config.getint('Model', "last_epoch") + 1
             self.backup = config.getboolean("Model", 'backup')
             self.backup_interval = config.getint("Model", 'backup_interval')
             lr = config.getfloat("Model", "lr")
@@ -42,8 +49,8 @@ class Pix2Pix():
             self.channels = 3
             self.output_folder = "images"
             self.save_path = "model"
-            self.load=False
-            self.last_epoch = 0
+            self.load = False
+            self.last_epoch = 1
             self.backup = False
 
         self.save_folder = join(self.output_folder, "models")
@@ -55,9 +62,8 @@ class Pix2Pix():
         self.img_dim = self.img_rows * self.img_cols * self.channels
         self.img_shape = (self.img_rows, self.img_cols, self.channels)
 
-
         # Calculate output shape of D (PatchGAN)
-        patch = int(self.img_rows / 2**4)
+        patch = int(self.img_rows / 2 ** 4)
         self.disc_patch = (patch, patch, 1)
 
         # Number of filters in the first layer of G and D
@@ -67,14 +73,11 @@ class Pix2Pix():
 
         # Build and compile the discriminator
         self.discriminator = self.build_discriminator()
-        self.discriminator.compile(loss='mse',
-            optimizer=optimizer,
-            metrics=['accuracy'])
 
-        #-------------------------
+        # -------------------------
         # Construct Computational
         #   Graph of Generator
-        #-------------------------
+        # -------------------------
 
         # Build the generator
         self.generator = self.build_generator()
@@ -83,6 +86,10 @@ class Pix2Pix():
         self.generator.summary()
 
         if self.load: self.load_model()
+
+        self.discriminator.compile(loss='mse',
+                                   optimizer=optimizer,
+                                   metrics=['accuracy'])
 
         # Input images and their conditioning images
         img_A = Input(shape=self.img_shape)
@@ -128,25 +135,23 @@ class Pix2Pix():
 
         # Downsampling
         d1 = conv2d(d0, self.gf, bn=False)
-        d2 = conv2d(d1, self.gf*2)
-        d3 = conv2d(d2, self.gf*4)
-        d4 = conv2d(d3, self.gf*8)
-        d5 = conv2d(d4, self.gf*8)
-        d6 = conv2d(d5, self.gf*8)
-        d7 = conv2d(d6, self.gf*8)
+        d2 = conv2d(d1, self.gf * 2)
+        d3 = conv2d(d2, self.gf * 4)
+        d4 = conv2d(d3, self.gf * 8)
+        d5 = conv2d(d4, self.gf * 8)
+        d6 = conv2d(d5, self.gf * 8)
+        d7 = conv2d(d6, self.gf * 8)
 
         # Upsampling
-        u1 = deconv2d(d7, d6, self.gf*8)
-        u2 = deconv2d(u1, d5, self.gf*8)
-        u3 = deconv2d(u2, d4, self.gf*8)
-        u4 = deconv2d(u3, d3, self.gf*4)
-        u5 = deconv2d(u4, d2, self.gf*2)
+        u1 = deconv2d(d7, d6, self.gf * 8)
+        u2 = deconv2d(u1, d5, self.gf * 8)
+        u3 = deconv2d(u2, d4, self.gf * 8)
+        u4 = deconv2d(u3, d3, self.gf * 4)
+        u5 = deconv2d(u4, d2, self.gf * 2)
         u6 = deconv2d(u5, d1, self.gf)
 
         u7 = UpSampling2D(size=2)(u6)
         output_img = Conv2D(self.channels, kernel_size=4, strides=1, padding='same', activation='tanh')(u7)
-
-        u7.summary()
 
         return Model(d0, output_img)
 
@@ -167,79 +172,93 @@ class Pix2Pix():
         combined_imgs = Concatenate(axis=-1)([img_A, img_B])
 
         d1 = d_layer(combined_imgs, self.df, bn=False)
-        d2 = d_layer(d1, self.df*2)
-        d3 = d_layer(d2, self.df*4)
-        d4 = d_layer(d3, self.df*8)
-
+        d2 = d_layer(d1, self.df * 2)
+        d3 = d_layer(d2, self.df * 4)
+        d4 = d_layer(d3, self.df * 8)
 
         validity = Conv2D(1, kernel_size=4, strides=1, padding='same')(d4)
 
-
         return Model([img_A, img_B], validity)
+
 
     def train(self, data, epochs, batch_size=1, sample_interval=50):
         X, _ = data
+        import csv
+        with open(self.log_file, 'a') as fout:
+            logger = csv.writer(fout, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
+            if self.last_epoch != 1: logger.writerow(["Epoch", "Batch", "D loss", "Accuracy", "G loss"])
 
-        start_time = datetime.datetime.now()
+            start_time = datetime.datetime.now()
+            Xc = []
+            for img in X:
+              Xc.append(cv2.Canny(cv2.cvtColor(cv2.blur(img, (5, 5)), cv2.COLOR_BGR2GRAY), 10, 15))
+            Xc = np.array(Xc)
 
-        X = (X.astype(np.float32) - 127.5) / 127.5
+            X = (X.astype(np.float32) - 127.5) / 127.5
+            Xc = (Xc.astype(np.float32) - 127.5) / 127.5
 
-        # Adversarial loss ground truths
-        valid = np.ones((batch_size,) + self.disc_patch)
-        fake = np.zeros((batch_size,) + self.disc_patch)
-        indicies = np.arange(0, len(X))
-        for epoch in range(self.last_epoch, epochs+self.last_epoch):
-            for batch_i, in range(int(len(X)/batch_size)):
-                ind_A = np.random.choice(indicies, size=batch_size)
-                ind_B = np.random.choice(indicies, size=batch_size)
-                (imgs_A, imgs_B) = X[ind_A], X[ind_B]
-                # ---------------------
-                #  Train Discriminator
-                # ---------------------
+            num_batches = ceil(len(X) / batch_size)
+            # Adversarial loss ground truths
+            valid = np.ones((batch_size,) + self.disc_patch)
+            fake = np.zeros((batch_size,) + self.disc_patch)
+            indicies = np.arange(0, len(X))
+            for epoch in range(self.last_epoch, epochs + self.last_epoch):
+                for batch_i in range(1, num_batches+1):
+                    ind = np.random.choice(indicies, size=batch_size)
 
-                # Condition on B and generate a translated version
-                fake_A = self.generator.predict(imgs_B)
+                    imgs_A, imgs_B = X[ind], Xc[ind]
+                    # ---------------------
+                    #  Train Discriminator
+                    # ---------------------
 
-                # Train the discriminators (original images = real / generated = Fake)
-                d_loss_real = self.discriminator.train_on_batch([imgs_A, imgs_B], valid)
-                d_loss_fake = self.discriminator.train_on_batch([fake_A, imgs_B], fake)
-                d_loss = 0.5 * np.add(d_loss_real, d_loss_fake)
+                    # Condition on B and generate a translated version
+                    fake_A = self.generator.predict(imgs_B)
 
-                # -----------------
-                #  Train Generator
-                # -----------------
+                    # Train the discriminators (original images = real / generated = Fake)
+                    d_loss_real = self.discriminator.train_on_batch([imgs_A, imgs_B], valid)
+                    d_loss_fake = self.discriminator.train_on_batch([fake_A, imgs_B], fake)
+                    d_loss = 0.5 * np.add(d_loss_real, d_loss_fake)
 
-                # Train the generators
-                g_loss = self.combined.train_on_batch([imgs_A, imgs_B], [valid, imgs_A])
+                    # -----------------
+                    #  Train Generator
+                    # -----------------
 
-                elapsed_time = datetime.datetime.now() - start_time
-                # Plot the progress
-                print ("[Epoch %d/%d] [Batch %d/%d] [D loss: %f, acc: %3d%%] [G loss: %f] time: %s" % (epoch, epochs,
-                                                                        batch_i, self.data_loader.n_batches,
-                                                                        d_loss[0], 100*d_loss[1],
-                                                                        g_loss[0],
-                                                                        elapsed_time))
+                    # Train the generators
+                    g_loss = self.combined.train_on_batch([imgs_A, imgs_B], [valid, imgs_A])
 
-                # If at save interval => save generated image samples
-                if batch_i % sample_interval == 0:
-                    self.sample_images(epoch, batch_i, imgs_A[:3], imgs_B[:3])
+                    elapsed_time = datetime.datetime.now() - start_time
+                    # Plot the progress
+                    print("[Epoch %d] [Batch %d] [D loss: %f, acc: %3d%%] [G loss: %f] time: %s" % (epoch,
+                                                                                                    batch_i,
+                                                                                                    d_loss[0],
+                                                                                                    100 * d_loss[1],
+                                                                                                    g_loss[0],
+                                                                                                    elapsed_time))
 
-                if self.backup and epoch % self.backup_interval == 0:
-                    self.save_model(ext='_e'+str(epoch))
+                    logger.writerow([epoch, batch_i, d_loss[0], 100 * d_loss[1], g_loss[0]])
+                    fout.flush()
 
-        self.save_model()
+                    # If at save interval => save generated image samples
+                    if ((epoch*num_batches)+batch_i) % sample_interval == 0:
+                        self.sample_images(epoch, batch_i, imgs_A[:3], imgs_B[:3])
+
+                    if self.backup and epoch % self.backup_interval == 0:
+                        self.save_model(ext='_e' + str(epoch))
+
+            self.save_model()
 
     def feed(self, img):
         img = (img.astype(np.float32) - 127.5) / 127.5
-        img = img + (np.random.rand(img.shape)-0.5)
-        img[img<0] = 0; img[img>1]=1
-        self.__feed = self.generator.predict(img.reshape((1,)+self.img_shape))
+        img = img + (np.random.rand(img.shape) - 0.5)
+        img[img < 0] = 0;
+        img[img > 1] = 1
+        self.__feed = self.generator.predict(img.reshape((1,) + self.img_shape))
 
     def generate(self, n):
 
-        gen_imgs=[]
+        gen_imgs = []
         for _ in range(n):
-            self.__feed = self.generator(self.__feed.reshape((1,)+self.img_shape))
+            self.__feed = self.generator(self.__feed.reshape((1,) + self.img_shape))
             gen_imgs.append(self.__feed.copy())
         return gen_imgs
 
@@ -258,25 +277,22 @@ class Pix2Pix():
         cnt = 0
         for i in range(r):
             for j in range(c):
-                axs[i,j].imshow(gen_imgs[cnt])
+                axs[i, j].imshow(gen_imgs[cnt])
                 axs[i, j].set_title(titles[i])
-                axs[i,j].axis('off')
+                axs[i, j].axis('off')
                 cnt += 1
         fig.savefig(join(self.output_folder, "pix2pix_e%d-b%d.png" % (epoch, batch_i)))
         plt.close()
 
-
     def load_model(self):
 
-        self.discriminator.load_weights(join(self.load_folder,"discriminator"))
+        self.discriminator.load_weights(join(self.load_folder, "discriminator"))
 
-        self.generator.load_weights(join(self.load_folder,"generator"))
-
+        self.generator.load_weights(join(self.load_folder, "generator"))
 
     def save_model(self, ext=''):
-        self.generator.save_weights(join(self.save_folder,"generator"+ext))
-        self.discriminator.save_weights(join(self.save_folder,"discriminator"+ext))
-
+        self.generator.save_weights(join(self.save_folder, "generator" + ext))
+        self.discriminator.save_weights(join(self.save_folder, "discriminator" + ext))
 
 
 if __name__ == '__main__':

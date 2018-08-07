@@ -32,7 +32,7 @@ class BIGAN():
             self.load = config.getboolean("Model", "load")
             self.load_folder = config.get("Model", "load_folder")
             self.latent_dim = config.getint("Model", "latent_dim")
-            self.last_epoch = config.getint('Model', "last_epoch")
+            self.last_epoch = config.getint('Model', "last_epoch") + 1
             self.backup = config.getboolean("Model", 'backup')
             self.backup_interval = config.getint("Model", 'backup_interval')
         else:
@@ -54,14 +54,10 @@ class BIGAN():
         self.img_dim = self.img_rows * self.img_cols * self.channels
         self.img_shape = (self.img_rows, self.img_cols, self.channels)
 
-
-
-
         optimizer = Adam(0.0002, 0.5)
 
         # Build and compile the discriminator
         self.discriminator = self.build_discriminator()
-
 
         # Build the generator
         self.generator = self.build_generator()
@@ -161,7 +157,6 @@ class BIGAN():
             logger = csv.writer(fout, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
             logger.writerow(["Epoch", "loss", "acc", "G loss"])
 
-
             # Rescale -1 to 1
             X = (X.astype(np.float32) - 127.5) / 127.5
             X = np.expand_dims(X, axis=3)
@@ -207,20 +202,17 @@ class BIGAN():
                     self.sample_interval(epoch)
 
                 if self.backup and epoch % self.backup_interval == 0:
-                    self.save_model(ext='_e'+str(epoch))
-
+                    self.save_model(ext='_e' + str(epoch))
 
             self.save_model()
 
-
     def generate(self, n):
-        z = np.random.normal(size=(batch_size, self.latent_dim))
-        imgs_ = self.generator.predict(z)
-
+        z = np.random.normal(size=(n, self.latent_dim))
+        return self.generator.predict(z)
 
     def sample_interval(self, epoch):
         r, c = 5, 5
-        z = np.random.normal(size=(25, self.latent_dim))
+        z = np.random.normal(size=(r * c, self.latent_dim))
         gen_imgs = self.generator.predict(z)
 
         gen_imgs = 0.5 * gen_imgs + 0.5
@@ -235,19 +227,16 @@ class BIGAN():
         fig.savefig(join(self.output_folder, "BiGAN_%d.png" % epoch))
         plt.close()
 
-
     def load_model(self):
-
-        self.discriminator.load_weights(join(self.load_folder,"discriminator"))
-
-        self.generator.load_weights(join(self.load_folder,"generator"))
-        self.encoder.load_weights(join(self.load_folder,"encoder"))
-
+        self.discriminator.load_weights(join(self.load_folder, "discriminator"))
+        self.generator.load_weights(join(self.load_folder, "generator"))
+        self.encoder.load_weights(join(self.load_folder, "encoder"))
 
     def save_model(self, ext=''):
-        self.generator.save_weights(join(self.save_folder,"generator"+ext))
-        self.encoder.save_weights(join(self.save_folder,"encoder"+ext))
-        self.discriminator.save_weights(join(self.save_folder,"discriminator"+ext))
-if __name__ == '__main__':
-    bigan = BIGAN()
-    bigan.train(epochs=40000, batch_size=32, sample_interval=400)
+        self.generator.save_weights(join(self.save_folder, "generator" + ext))
+        self.encoder.save_weights(join(self.save_folder, "encoder" + ext))
+        self.discriminator.save_weights(join(self.save_folder, "discriminator" + ext))
+
+# if __name__ == '__main__':
+#     bigan = BIGAN()
+#     bigan.train(epochs=40000, batch_size=32, sample_interval=400)

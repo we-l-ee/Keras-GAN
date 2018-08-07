@@ -31,7 +31,7 @@ class DUALGAN():
             self.output_folder = config.get("Model", "output_folder")
             self.load = config.getboolean("Model", "load")
             self.load_folder = join(config.get("Model", "load_folder"),"models")
-            self.last_epoch = config.getint('Model', "last_epoch")
+            self.last_epoch = config.getint('Model', "last_epoch")+1
             self.backup = config.getboolean("Model", 'backup')
             self.backup_interval = config.getint("Model", 'backup_interval')
         else:
@@ -41,7 +41,7 @@ class DUALGAN():
             self.output_folder = "images"
             self.save_path = "model"
             self.load=False
-            self.last_epoch = 0
+            self.last_epoch = 1
 
         self.log_folder = join(self.output_folder, "logs")
         self.save_folder = join(self.output_folder, "models")
@@ -167,17 +167,16 @@ class DUALGAN():
         X, _ = data
 
         import csv
-        with open(self.log_file, 'w') as fout:
+        with open(self.log_file, 'a') as fout:
             logger = csv.writer(fout, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
-            logger.writerow(["Epoch", "D1_loss", "D2_loss", "G_loss"])
+            if self.last_epoch != 1: logger.writerow(["Epoch", "D1 loss", "D2 loss", "G loss"])
+
             # Rescale -1 to 1
             X = (X.astype(np.float32) - 127.5) / 127.5
 
             # Domain A and B (rotated)
             X_A = X[:int(X.shape[0] / 2)]
-            X_B = scipy.ndimage.interpolation.rotate(X[int(X.shape[0] / 2):], 90
-                                                     , axes=(1, 2)
-                                                     )
+            X_B = scipy.ndimage.interpolation.rotate(X[int(X.shape[0] / 2):], 90, axes=(1, 2))
 
             X_A = X_A.reshape(X_A.shape[0], self.img_dim)
             X_B = X_B.reshape(X_B.shape[0], self.img_dim)
@@ -189,7 +188,7 @@ class DUALGAN():
             valid = -np.ones((batch_size, 1))
             fake = np.ones((batch_size, 1))
 
-            for epoch in range(self.last_epoch+1, epochs+self.last_epoch+1):
+            for epoch in range(self.last_epoch, epochs+self.last_epoch):
 
                 # Train the discriminator for n_critic iterations
                 for _ in range(n_critic):

@@ -25,12 +25,10 @@ from keras.models import load_model
 
 class WGAN():
     def __init__(self, config=None):
-
         '''
         Must be input shape must be divisible by 4, if not giving as required it will make it so.
         :param config:
         '''
-
         if config is not None:
             self.img_rows = config.getint("Model", "rows")
             self.img_cols = config.getint("Model", "cols")
@@ -39,7 +37,7 @@ class WGAN():
             self.load = config.getboolean("Model", "load")
             self.latent_dim = config.getint("Model", "latent_dim")
             self.load_folder = join(config.get("Model", "load_folder"),"models")
-            self.last_epoch = config.getint('Model', "last_epoch")
+            self.last_epoch = config.getint('Model', "last_epoch")+1
             self.backup = config.getboolean("Model", 'backup')
             self.backup_interval = config.getint("Model", 'backup_interval')
             lr = config.getfloat("Model","lr")
@@ -61,8 +59,9 @@ class WGAN():
         makedirs(self.log_folder, exist_ok=True)
         makedirs(self.save_folder, exist_ok=True)
 
+        self.img_rows = self.img_rows // 4 * 4; self.img_cols = self.img_cols // 4 * 4
         self.img_dim = self.img_rows * self.img_cols * self.channels
-        self.img_shape = (self.img_rows//4*4, self.img_cols//4*4, self.channels)
+        self.img_shape = (self.img_rows, self.img_cols, self.channels)
 
         # Following parameter and optimizer set as recommended in paper
         self.n_critic = 5
@@ -165,9 +164,9 @@ class WGAN():
         X, _ = data
 
         import csv
-        with open(self.log_file, 'w') as fout:
+        with open(self.log_file, 'a') as fout:
             logger = csv.writer(fout, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
-            logger.writerow(["Epoch", "D loss", "G loss"])
+            if self.last_epoch != 1: logger.writerow(["Epoch", "D loss", "G loss"])
 
             # Rescale -1 to 1
             X = (X.astype(np.float32) - 127.5) / 127.5
@@ -232,7 +231,6 @@ class WGAN():
         # Generate a batch of new images
         return self.generator.predict(noise)
 
-
     def sample_images(self, epoch):
         r, c = 5, 5
         noise = np.random.normal(0, 1, (r * c, self.latent_dim))
@@ -251,19 +249,16 @@ class WGAN():
         fig.savefig(join(self.output_folder, "WGAN_%d.png" % epoch))
         plt.close()
 
-
     def load_model(self):
-
         self.critic.load_weights(join(self.load_folder,"critic"))
 
         self.generator.load_weights(join(self.load_folder,"generator"))
-
 
     def save_model(self, ext=''):
         self.critic.save_weights(join(self.save_folder,"critic"+ext))
 
         self.generator.save_weights(join(self.save_folder,"generator"+ext))
 
-if __name__ == '__main__':
-    wgan = WGAN()
-    wgan.train(epochs=4000, batch_size=32, sample_interval=50)
+# if __name__ == '__main__':
+#     wgan = WGAN()
+#     wgan.train(epochs=4000, batch_size=32, sample_interval=50)
