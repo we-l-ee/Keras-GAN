@@ -151,6 +151,8 @@ class BIGAN():
 
     def train(self, data, epochs, batch_size=128, sample_interval=50):
         X, _ = data
+        if self.channels == 1:
+            X = np.expand_dims(X, axis=3)
 
         import csv
         with open(self.log_file, 'w') as fout:

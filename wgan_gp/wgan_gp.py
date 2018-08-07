@@ -225,6 +225,9 @@ class WGANGP():
 
         # Load the dataset
         X, _ = data
+        if self.channels == 1:
+            X = np.expand_dims(X, axis=3)
+
         import csv
         with open(self.log_file, 'a') as fout:
             logger = csv.writer(fout, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)

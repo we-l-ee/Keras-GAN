@@ -28,7 +28,7 @@ import cv2
 class Pix2Pix():
     def __init__(self, config=None):
         '''
-
+        Should be used with one channel only
         :param config:
         '''
         if config is not None:
@@ -191,8 +191,17 @@ class Pix2Pix():
             start_time = datetime.datetime.now()
             Xc = []
             for img in X:
-              Xc.append(cv2.Canny(cv2.cvtColor(cv2.blur(img, (5, 5)), cv2.COLOR_BGR2GRAY), 10, 15))
+                if self.channels == 1:
+                    Xc.append(cv2.Canny(cv2.blur(img, (5, 5)), 10, 15))
+                else:
+                    Xc.append(cv2.cvtColor(
+                        cv2.Canny(cv2.blur(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), (5, 5)), 10, 15), cv2.COLOR_GRAY2BGR))
             Xc = np.array(Xc)
+            if self.channels == 1:
+                X = np.expand_dims(X, axis=3)
+                Xc = np.expand_dims(Xc, axis=3)
+
+            # print(Xc.shape)
 
             X = (X.astype(np.float32) - 127.5) / 127.5
             Xc = (Xc.astype(np.float32) - 127.5) / 127.5
@@ -207,6 +216,7 @@ class Pix2Pix():
                     ind = np.random.choice(indicies, size=batch_size)
 
                     imgs_A, imgs_B = X[ind], Xc[ind]
+                    # print(imgs_A.shape, imgs_B.shape)
                     # ---------------------
                     #  Train Discriminator
                     # ---------------------
@@ -277,7 +287,7 @@ class Pix2Pix():
         cnt = 0
         for i in range(r):
             for j in range(c):
-                axs[i, j].imshow(gen_imgs[cnt])
+                axs[i, j].imshow(gen_imgs[cnt, :, :, 0], cmap='gray')
                 axs[i, j].set_title(titles[i])
                 axs[i, j].axis('off')
                 cnt += 1
