@@ -85,7 +85,10 @@ class Pix2Pix():
         self.discriminator.summary()
         self.generator.summary()
 
-        if self.load: self.load_model()
+        if self.load:
+            self.load_model()
+        else:
+            self.last_epoch = 1
 
         self.discriminator.compile(loss='mse',
                                    optimizer=optimizer,
@@ -180,7 +183,6 @@ class Pix2Pix():
 
         return Model([img_A, img_B], validity)
 
-
     def train(self, data, epochs, batch_size=1, sample_interval=50):
         X, _ = data
         import csv
@@ -212,7 +214,7 @@ class Pix2Pix():
             fake = np.zeros((batch_size,) + self.disc_patch)
             indicies = np.arange(0, len(X))
             for epoch in range(self.last_epoch, epochs + self.last_epoch):
-                for batch_i in range(1, num_batches+1):
+                for batch_i in range(1, num_batches + 1):
                     ind = np.random.choice(indicies, size=batch_size)
 
                     imgs_A, imgs_B = X[ind], Xc[ind]
@@ -249,7 +251,7 @@ class Pix2Pix():
                     fout.flush()
 
                     # If at save interval => save generated image samples
-                    if ((epoch*num_batches)+batch_i) % sample_interval == 0:
+                    if ((epoch * num_batches) + batch_i) % sample_interval == 0:
                         self.sample_images(epoch, batch_i, imgs_A[:3], imgs_B[:3])
 
                     if self.backup and epoch % self.backup_interval == 0:
@@ -291,7 +293,7 @@ class Pix2Pix():
                 axs[i, j].set_title(titles[i])
                 axs[i, j].axis('off')
                 cnt += 1
-        fig.savefig(join(self.output_folder, "pix2pix_e%d-b%d.png" % (epoch, batch_i)))
+        fig.savefig(join(self.output_folder, "pix2pix_e%d-b%d.jpg" % (epoch, batch_i)))
         plt.close()
 
     def load_model(self):

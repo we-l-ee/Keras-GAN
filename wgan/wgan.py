@@ -78,6 +78,7 @@ class WGAN():
         self.generator = self.build_generator()
 
         if self.load: self.load_model()
+        else: self.last_epoch = 1
 
         # The generator takes noise as input and generated imgs
         z = Input(shape=(self.latent_dim,))

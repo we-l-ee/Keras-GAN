@@ -30,7 +30,7 @@ class BIGAN():
             self.channels = config.getint("Model", "channels")
             self.output_folder = config.get("Model", "output_folder")
             self.load = config.getboolean("Model", "load")
-            self.load_folder = config.get("Model", "load_folder")
+            self.load_folder = join(config.get("Model", "load_folder"), 'models')
             self.latent_dim = config.getint("Model", "latent_dim")
             self.last_epoch = config.getint('Model', "last_epoch") + 1
             self.backup = config.getboolean("Model", 'backup')
@@ -65,7 +65,9 @@ class BIGAN():
         # Build the encoder
         self.encoder = self.build_encoder()
 
-        if self.load: self.load_model()
+        if self.load:
+            self.load_model()
+            self.last_epoch = 1
 
         self.discriminator.compile(loss=['binary_crossentropy'],
                                    optimizer=optimizer,
@@ -155,13 +157,12 @@ class BIGAN():
             X = np.expand_dims(X, axis=3)
 
         import csv
-        with open(self.log_file, 'w') as fout:
+        with open(self.log_file, 'a') as fout:
             logger = csv.writer(fout, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
             logger.writerow(["Epoch", "loss", "acc", "G loss"])
 
             # Rescale -1 to 1
             X = (X.astype(np.float32) - 127.5) / 127.5
-            X = np.expand_dims(X, axis=3)
 
             # Adversarial ground truths
             valid = np.ones((batch_size, 1))

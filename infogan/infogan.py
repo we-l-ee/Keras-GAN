@@ -63,7 +63,10 @@ class INFOGAN():
         # Build the generator
         self.generator = self.build_generator()
 
-        if self.load: self.load_model()
+        if self.load:
+            self.load_model()
+        else:
+            self.last_epoch = 1
 
         self.discriminator.compile(loss=['binary_crossentropy'],
                                    optimizer=optimizer,

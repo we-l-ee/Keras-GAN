@@ -25,9 +25,7 @@ import numpy as np
 from os.path import join
 from os import makedirs
 
-from keras.models import save_model
-from keras.models import load_model
-
+from keras.models import save_model, load_model
 
 class RandomWeightedAverage(_Merge):
     """Provides a (random) weighted average between real and generated image samples"""
@@ -88,7 +86,10 @@ class WGANGP():
         self.generator = self.build_generator()
         self.critic = self.build_critic()
 
-        if self.load: self.load_model()
+        if self.load:
+            self.load_model()
+        else:
+            self.last_epoch = 1
 
         # -------------------------------
         # Construct Computational Graph
@@ -123,11 +124,13 @@ class WGANGP():
 
         self.critic_model = Model(inputs=[real_img, z_disc],
                                   outputs=[valid, fake, validity_interpolated])
+
         self.critic_model.compile(loss=[self.wasserstein_loss,
                                         self.wasserstein_loss,
                                         partial_gp_loss],
                                   optimizer=optimizer,
                                   loss_weights=[1, 1, 10])
+
         # -------------------------------
         # Construct Computational Graph
         #         for Generator

@@ -73,6 +73,7 @@ class DUALGAN():
         self.G_BA = self.build_generator()
 
         if self.load: self.load_model()
+        else: self.last_epoch = 1
 
         self.D_A.compile(loss=self.wasserstein_loss,
                          optimizer=optimizer,
